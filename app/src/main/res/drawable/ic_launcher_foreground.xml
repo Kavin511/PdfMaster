@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- PDF Document Icon -->
+    <group
+        android:translateX="27"
+        android:translateY="27">
+
+        <!-- Document background -->
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M8,4 L38,4 L48,14 L48,50 C48,52.2 46.2,54 44,54 L8,54 C5.8,54 4,52.2 4,50 L4,8 C4,5.8 5.8,4 8,4 Z"/>
+
+        <!-- Folded corner -->
+        <path
+            android:fillColor="#E5E7EB"
+            android:pathData="M38,4 L38,14 L48,14 Z"/>
+
+        <!-- PDF text -->
+        <path
+            android:fillColor="#2563EB"
+            android:pathData="M12,24 L18,24 C20.2,24 22,25.8 22,28 C22,30.2 20.2,32 18,32 L14,32 L14,38 L12,38 L12,24 Z M14,26 L14,30 L18,30 C19.1,30 20,29.1 20,28 C20,26.9 19.1,26 18,26 L14,26 Z"/>
+
+        <path
+            android:fillColor="#2563EB"
+            android:pathData="M24,24 L30,24 C33.3,24 36,26.7 36,30 L36,32 C36,35.3 33.3,38 30,38 L24,38 L24,24 Z M26,26 L26,36 L30,36 C32.2,36 34,34.2 34,32 L34,30 C34,27.8 32.2,26 30,26 L26,26 Z"/>
+
+        <path
+            android:fillColor="#2563EB"
+            android:pathData="M38,24 L46,24 L46,26 L40,26 L40,30 L44,30 L44,32 L40,32 L40,38 L38,38 L38,24 Z"/>
+
+        <!-- Decorative line -->
+        <path
+            android:fillColor="#2563EB"
+            android:strokeWidth="0"
+            android:pathData="M12,44 L40,44 L40,46 L12,46 Z"/>
+
+    </group>
+</vector>

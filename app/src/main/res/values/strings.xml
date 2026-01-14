@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PDF Master</string>
+
+    <!-- Home Screen -->
+    <string name="home_title">PDF Master</string>
+    <string name="tab_all_files">All Files</string>
+    <string name="tab_recent">Recent</string>
+    <string name="tab_favorites">Favorites</string>
+    <string name="tab_folders">Folders</string>
+
+    <!-- Tools -->
+    <string name="tool_scan">Scan</string>
+    <string name="tool_merge">Merge</string>
+    <string name="tool_split">Split</string>
+    <string name="tool_compress">Compress</string>
+    <string name="tool_convert">Convert</string>
+    <string name="tool_edit">Edit</string>
+    <string name="tool_sign">Sign</string>
+    <string name="tool_protect">Protect</string>
+    <string name="tool_ocr">OCR</string>
+
+    <!-- Actions -->
+    <string name="action_open">Open</string>
+    <string name="action_share">Share</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_rename">Rename</string>
+    <string name="action_favorite">Add to Favorites</string>
+    <string name="action_remove_favorite">Remove from Favorites</string>
+    <string name="action_print">Print</string>
+    <string name="action_save">Save</string>
+    <string name="action_save_as">Save As</string>
+    <string name="action_cancel">Cancel</string>
+    <string name="action_confirm">Confirm</string>
+    <string name="action_done">Done</string>
+    <string name="action_undo">Undo</string>
+    <string name="action_redo">Redo</string>
+
+    <!-- Empty States -->
+    <string name="empty_no_files">No PDF files found</string>
+    <string name="empty_no_recent">No recent files</string>
+    <string name="empty_no_favorites">No favorites yet</string>
+    <string name="empty_import_hint">Import or scan documents to get started</string>
+
+    <!-- Permissions -->
+    <string name="permission_storage_title">Storage Permission Required</string>
+    <string name="permission_storage_message">PDF Master needs access to your files to open and save PDF documents.</string>
+    <string name="permission_camera_title">Camera Permission Required</string>
+    <string name="permission_camera_message">Camera access is needed to scan documents.</string>
+    <string name="permission_grant">Grant Permission</string>
+
+    <!-- Viewer -->
+    <string name="viewer_page_format">Page %1$d of %2$d</string>
+    <string name="viewer_search_hint">Search in document</string>
+    <string name="viewer_no_results">No results found</string>
+
+    <!-- Editor -->
+    <string name="editor_add_text">Add Text</string>
+    <string name="editor_edit_text">Edit Text</string>
+    <string name="editor_add_image">Add Image</string>
+    <string name="editor_delete_page">Delete Page</string>
+    <string name="editor_rotate_page">Rotate Page</string>
+    <string name="editor_add_page">Add Page</string>
+    <string name="editor_reorder_pages">Reorder Pages</string>
+    <string name="editor_unsaved_changes">You have unsaved changes</string>
+    <string name="editor_discard">Discard</string>
+    <string name="editor_save_changes">Save Changes</string>
+
+    <!-- Scanner -->
+    <string name="scanner_title">Scan Document</string>
+    <string name="scanner_capture">Capture</string>
+    <string name="scanner_retake">Retake</string>
+    <string name="scanner_add_page">Add Page</string>
+    <string name="scanner_finish">Finish</string>
+    <string name="scanner_enhance">Enhance</string>
+    <string name="scanner_crop">Crop</string>
+    <string name="scanner_rotate">Rotate</string>
+
+    <!-- Merge -->
+    <string name="merge_title">Merge PDFs</string>
+    <string name="merge_select_files">Select PDF files to merge</string>
+    <string name="merge_reorder_hint">Drag to reorder</string>
+    <string name="merge_processing">Merging documents…</string>
+    <string name="merge_success">PDFs merged successfully</string>
+
+    <!-- Split -->
+    <string name="split_title">Split PDF</string>
+    <string name="split_select_pages">Select pages to extract</string>
+    <string name="split_by_range">Split by range</string>
+    <string name="split_extract_pages">Extract selected pages</string>
+    <string name="split_success">PDF split successfully</string>
+
+    <!-- Compress -->
+    <string name="compress_title">Compress PDF</string>
+    <string name="compress_quality_high">High Quality</string>
+    <string name="compress_quality_medium">Balanced</string>
+    <string name="compress_quality_low">Maximum Compression</string>
+    <string name="compress_original_size">Original: %1$s</string>
+    <string name="compress_new_size">Compressed: %1$s</string>
+    <string name="compress_savings">Saved %1$s (%2$d%%)</string>
+    <string name="compress_processing">Compressing…</string>
+    <string name="compress_success">PDF compressed successfully</string>
+
+    <!-- Signature -->
+    <string name="signature_title">Add Signature</string>
+    <string name="signature_draw">Draw Signature</string>
+    <string name="signature_upload">Upload Image</string>
+    <string name="signature_saved">Saved Signatures</string>
+    <string name="signature_clear">Clear</string>
+    <string name="signature_save">Save Signature</string>
+    <string name="signature_place">Tap to place signature</string>
+
+    <!-- Security -->
+    <string name="security_set_password">Set Password</string>
+    <string name="security_enter_password">Enter Password</string>
+    <string name="security_confirm_password">Confirm Password</string>
+    <string name="security_remove_password">Remove Password</string>
+    <string name="security_password_mismatch">Passwords don\'t match</string>
+    <string name="security_wrong_password">Incorrect password</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_theme">Theme</string>
+    <string name="settings_theme_light">Light</string>
+    <string name="settings_theme_dark">Dark</string>
+    <string name="settings_theme_system">System Default</string>
+    <string name="settings_default_view">Default View</string>
+    <string name="settings_storage">Storage</string>
+    <string name="settings_clear_cache">Clear Cache</string>
+    <string name="settings_about">About</string>
+    <string name="settings_version">Version</string>
+    <string name="settings_rate">Rate App</string>
+    <string name="settings_feedback">Send Feedback</string>
+    <string name="settings_privacy">Privacy Policy</string>
+    <string name="settings_terms">Terms of Service</string>
+
+    <!-- Premium -->
+    <string name="premium_title">PDF Master Pro</string>
+    <string name="premium_unlock">Unlock All Features</string>
+    <string name="premium_feature_ads">Remove all ads</string>
+    <string name="premium_feature_edit">Full PDF text editing</string>
+    <string name="premium_feature_unlimited">Unlimited operations</string>
+    <string name="premium_feature_signatures">Digital signatures</string>
+    <string name="premium_feature_ocr">OCR text recognition</string>
+    <string name="premium_monthly">Monthly</string>
+    <string name="premium_yearly">Yearly</string>
+    <string name="premium_lifetime">Lifetime</string>
+    <string name="premium_restore">Restore Purchase</string>
+
+    <!-- Errors -->
+    <string name="error_generic">Something went wrong</string>
+    <string name="error_file_not_found">File not found</string>
+    <string name="error_file_corrupted">File is corrupted or invalid</string>
+    <string name="error_permission_denied">Permission denied</string>
+    <string name="error_save_failed">Failed to save file</string>
+    <string name="error_load_failed">Failed to load file</string>
+
+    <!-- Success -->
+    <string name="success_saved">File saved successfully</string>
+    <string name="success_copied">Copied to clipboard</string>
+    <string name="success_deleted">File deleted</string>
+</resources>
