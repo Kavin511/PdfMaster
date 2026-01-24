@@ -29,6 +29,15 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showThemeDialog by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Show snackbar when cache is cleared
+    LaunchedEffect(uiState.cacheCleared) {
+        uiState.cacheCleared?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            viewModel.clearCacheMessage()
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -40,7 +49,8 @@ fun SettingsScreen(
                     }
                 }
             )
-        }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { paddingValues ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(paddingValues),
@@ -103,7 +113,7 @@ fun SettingsScreen(
                 SettingsItem(
                     icon = Icons.Outlined.CleaningServices,
                     title = "Clear Cache",
-                    subtitle = "Free up storage space",
+                    subtitle = if (uiState.cacheSize.isNotEmpty()) "Cache size: ${uiState.cacheSize}" else "Free up storage space",
                     onClick = { viewModel.clearCache() }
                 )
             }

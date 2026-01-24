@@ -21,7 +21,9 @@ data class SettingsUiState(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val dynamicColorEnabled: Boolean = true,
     val keepScreenOn: Boolean = false,
-    val isPremium: Boolean = false
+    val isPremium: Boolean = false,
+    val cacheCleared: String? = null,
+    val cacheSize: String = ""
 )
 
 @HiltViewModel
@@ -34,6 +36,7 @@ class SettingsViewModel @Inject constructor(
 
     init {
         loadSettings()
+        updateCacheSize()
     }
 
     private fun loadSettings() {
@@ -59,6 +62,13 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    private fun updateCacheSize() {
+        viewModelScope.launch {
+            val size = FileUtils.getCacheSize(context)
+            _uiState.update { it.copy(cacheSize = FileUtils.formatFileSize(size)) }
+        }
+    }
+
     fun setThemeMode(mode: ThemeMode) {
         viewModelScope.launch { userPreferences.setThemeMode(mode) }
     }
@@ -72,7 +82,15 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun clearCache() {
-        viewModelScope.launch { FileUtils.clearTempDirectory(context) }
+        viewModelScope.launch {
+            val freedBytes = FileUtils.clearAllCache(context)
+            val freedSize = FileUtils.formatFileSize(freedBytes)
+            _uiState.update { it.copy(cacheCleared = "Cleared $freedSize", cacheSize = "0 B") }
+        }
+    }
+
+    fun clearCacheMessage() {
+        _uiState.update { it.copy(cacheCleared = null) }
     }
 
     fun openPlayStore() {

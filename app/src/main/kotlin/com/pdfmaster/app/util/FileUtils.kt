@@ -145,6 +145,31 @@ object FileUtils {
         }
     }
 
+    /**
+     * Clears all app cache including temp files, cache directory
+     * Returns the amount of space freed in bytes
+     */
+    fun clearAllCache(context: Context): Long {
+        var freedBytes = 0L
+        try {
+            // Calculate size before deleting
+            freedBytes += getCacheSize(context)
+
+            // Clear temp directory
+            getTempDirectory(context).deleteRecursively()
+
+            // Clear cache directory contents
+            context.cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+
+            // Clear external cache if available
+            context.externalCacheDir?.listFiles()?.forEach { it.deleteRecursively() }
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return freedBytes
+    }
+
     fun copyUriToFile(context: Context, uri: Uri, outputFile: File): Boolean {
         return try {
             context.contentResolver.openInputStream(uri)?.use { inputStream ->
