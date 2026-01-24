@@ -77,6 +77,7 @@ dependencies {
     // Core Android
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation("androidx.appcompat:appcompat:1.7.0")  // Required for ComPDFKit
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
@@ -125,8 +126,15 @@ dependencies {
     implementation(libs.mlkit.document.scanner)
     implementation(libs.mlkit.text.recognition)
 
-    // PDF Libraries - Using PDFBox Android for PDF manipulation
+    // PDF Libraries
     implementation(libs.pdfbox.android)
+    implementation(libs.mupdf.fitz)  // MuPDF for accurate text extraction
+    implementation(libs.openpdf)      // OpenPDF for PDF manipulation
+
+    // ComPDFKit SDK - Professional PDF editing
+    implementation("com.compdf:compdfkit:2.5.3")
+    implementation("com.compdf:compdfkit-ui:2.5.3")
+    implementation("com.compdf:compdfkit-tools:2.5.3")
 
     // Accompanist
     implementation(libs.accompanist.permissions)

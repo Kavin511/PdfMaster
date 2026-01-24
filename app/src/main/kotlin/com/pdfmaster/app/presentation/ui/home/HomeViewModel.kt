@@ -138,14 +138,34 @@ class HomeViewModel @Inject constructor(
     }
 
     fun shareFile(context: Context, document: PdfDocument) {
-        val uri = document.parsedUri
-        context.contentResolver.openInputStream(uri)?.use {
+        try {
+            val uri = document.parsedUri
+
+            // Copy to cache for reliable sharing
+            val fileName = document.name.ifEmpty { "document.pdf" }
+            val cacheFile = java.io.File(context.cacheDir, "share_$fileName")
+
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                cacheFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            } ?: throw Exception("Cannot read file")
+
+            val shareUri = androidx.core.content.FileProvider.getUriForFile(
+                context,
+                "${context.packageName}.fileprovider",
+                cacheFile
+            )
+
             val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
                 type = "application/pdf"
-                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                putExtra(android.content.Intent.EXTRA_STREAM, shareUri)
                 addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
             context.startActivity(android.content.Intent.createChooser(intent, "Share PDF"))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            _uiState.update { it.copy(error = "Failed to share: ${e.message}") }
         }
     }
 

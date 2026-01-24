@@ -88,6 +88,10 @@ class ViewerViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.update { it.copy(isLoading = true, error = null) }
 
+            // Clear cached pages when loading a new PDF or reloading
+            loadedPages.values.forEach { it?.recycle() }
+            loadedPages.clear()
+
             try {
                 val fileName = title ?: FileUtils.getFileName(context, uri)
                 val pageCount = PdfUtils.getPageCount(context, uri)
@@ -206,12 +210,45 @@ class ViewerViewModel @Inject constructor(
 
     fun shareFile(context: Context) {
         _uiState.value.uri?.let { uri ->
-            val intent = Intent(Intent.ACTION_SEND).apply {
-                type = "application/pdf"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            try {
+                // For content URIs, we need to copy to a temp file first for reliable sharing
+                val shareUri = if (uri.scheme == "content") {
+                    // Copy to cache for sharing
+                    val fileName = _uiState.value.fileName.ifEmpty { "document.pdf" }
+                    val cacheFile = java.io.File(context.cacheDir, "share_$fileName")
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        cacheFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                    androidx.core.content.FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        cacheFile
+                    )
+                } else if (uri.scheme == "file") {
+                    val file = java.io.File(uri.path!!)
+                    androidx.core.content.FileProvider.getUriForFile(
+                        context,
+                        "${context.packageName}.fileprovider",
+                        file
+                    )
+                } else {
+                    uri
+                }
+
+                val intent = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/pdf"
+                    putExtra(Intent.EXTRA_STREAM, shareUri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(intent, "Share PDF"))
+            } catch (e: Exception) {
+                e.printStackTrace()
+                _uiState.update { it.copy(error = "Failed to share: ${e.message}") }
             }
-            context.startActivity(Intent.createChooser(intent, "Share PDF"))
+        } ?: run {
+            _uiState.update { it.copy(error = "No file to share") }
         }
     }
 

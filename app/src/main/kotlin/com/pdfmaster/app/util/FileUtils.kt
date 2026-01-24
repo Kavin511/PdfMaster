@@ -110,11 +110,22 @@ object FileUtils {
     }
 
     fun getOutputDirectory(context: Context): File {
-        val dir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), "PdfMaster")
+        // Use public Documents/PdfMaster folder for user accessibility
+        val publicDocsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+        val dir = File(publicDocsDir, "PdfMaster")
         if (!dir.exists()) {
             dir.mkdirs()
         }
-        return dir
+        // Fallback to app-specific directory if public folder is not writable
+        return if (dir.canWrite()) {
+            dir
+        } else {
+            val fallbackDir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOCUMENTS), "PdfMaster")
+            if (!fallbackDir.exists()) {
+                fallbackDir.mkdirs()
+            }
+            fallbackDir
+        }
     }
 
     fun getTempDirectory(context: Context): File {

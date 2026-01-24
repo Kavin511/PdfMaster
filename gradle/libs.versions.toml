@@ -22,6 +22,8 @@ mlkitTextRecognition = "16.0.1"
 
 # PDF Libraries (pdfbox-android is the Android port of Apache PDFBox)
 pdfboxAndroid = "2.0.27.0"
+mupdf = "1.24.10"
+openpdf = "2.0.2"
 
 # Firebase & Ads
 firebaseBom = "33.7.0"
@@ -92,6 +94,8 @@ mlkit-text-recognition = { group = "com.google.mlkit", name = "text-recognition"
 
 # PDF Libraries (Android port)
 pdfbox-android = { group = "com.tom-roush", name = "pdfbox-android", version.ref = "pdfboxAndroid" }
+mupdf-fitz = { group = "com.artifex.mupdf", name = "fitz", version.ref = "mupdf" }
+openpdf = { group = "com.github.librepdf", name = "openpdf", version.ref = "openpdf" }
 
 # Firebase
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }

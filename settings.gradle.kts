@@ -18,6 +18,8 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven { url = uri("https://jitpack.io") }
+        maven { url = uri("https://maven.ghostscript.com/") }  // MuPDF repository
+        maven { url = uri("https://www.compdf.com/maven/android") }  // ComPDFKit repository
     }
 }
 
