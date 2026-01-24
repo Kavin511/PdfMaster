@@ -436,6 +436,7 @@ private fun FileList(
     if (isGridView) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 160.dp),
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -452,6 +453,7 @@ private fun FileList(
         }
     } else {
         LazyColumn(
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
