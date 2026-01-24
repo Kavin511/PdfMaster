@@ -126,7 +126,32 @@ class HomeViewModel @Inject constructor(
 
     fun toggleFavorite(document: PdfDocument) {
         viewModelScope.launch {
-            pdfDao.updateFavoriteStatus(document.id, !document.isFavorite)
+            val newFavoriteStatus = !document.isFavorite
+
+            // Update in pdf_documents table
+            val existingDoc = pdfDao.getDocumentByUri(document.uri)
+            if (existingDoc != null) {
+                pdfDao.updateFavoriteStatus(existingDoc.id, newFavoriteStatus)
+            } else {
+                // Document doesn't exist in pdf_documents, add it
+                val pdfEntity = com.pdfmaster.app.data.local.entity.PdfEntity(
+                    id = document.id,
+                    uri = document.uri,
+                    name = document.name,
+                    path = document.path ?: "",
+                    size = document.size,
+                    pageCount = document.pageCount,
+                    createdAt = document.createdAt.time,
+                    modifiedAt = document.modifiedAt.time,
+                    lastOpened = System.currentTimeMillis(),
+                    isFavorite = newFavoriteStatus,
+                    thumbnailPath = document.thumbnailPath
+                )
+                pdfDao.insertDocument(pdfEntity)
+            }
+
+            // Also update in recent_files table
+            pdfDao.setFavorite(document.id, newFavoriteStatus)
         }
     }
 
