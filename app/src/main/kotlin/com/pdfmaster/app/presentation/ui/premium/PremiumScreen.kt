@@ -20,6 +20,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
@@ -27,22 +28,57 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import com.pdfmaster.app.presentation.theme.*
 
 enum class PlanType {
-    MONTHLY, YEARLY, LIFETIME
+    WEEKLY, ANNUAL, LIFETIME
+}
+
+/** Walks the ContextWrapper chain to find the hosting Activity (needed to launch billing). */
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PremiumScreen(
     onNavigateBack: () -> Unit,
+    source: String = "premium_screen",
     viewModel: PremiumViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    var selectedPlan by remember { mutableStateOf(PlanType.YEARLY) }
+    var selectedPlan by remember { mutableStateOf(PlanType.ANNUAL) }
+    val activity = LocalContext.current.findActivity()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Report the paywall impression once, tagged with where it was opened from.
+    LaunchedEffect(Unit) { viewModel.trackPaywallViewed(source) }
+
+    // Surface transient errors/messages from billing.
+    LaunchedEffect(uiState.error) {
+        uiState.error?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearError()
+        }
+    }
+    LaunchedEffect(uiState.message) {
+        uiState.message?.let {
+            snackbarHostState.showSnackbar(it)
+            viewModel.clearMessage()
+        }
+    }
+    // On a successful unlock, leave the paywall.
+    LaunchedEffect(uiState.purchaseSuccess) {
+        if (uiState.purchaseSuccess) onNavigateBack()
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { },
@@ -132,13 +168,12 @@ fun PremiumScreen(
                         Spacer(Modifier.height(16.dp))
 
                         PremiumFeatureItem(Icons.Outlined.AllInclusive, "Unlimited PDF operations")
-                        PremiumFeatureItem(Icons.Outlined.Block, "No advertisements")
+                        PremiumFeatureItem(Icons.Outlined.WaterDrop, "No watermark on scans & edits")
                         PremiumFeatureItem(Icons.Outlined.Edit, "Full PDF text editing")
                         PremiumFeatureItem(Icons.Outlined.Scanner, "Unlimited document scanning")
                         PremiumFeatureItem(Icons.Outlined.Compress, "Advanced compression options")
                         PremiumFeatureItem(Icons.Outlined.Draw, "All annotation tools")
                         PremiumFeatureItem(Icons.Outlined.Security, "Password protection")
-                        PremiumFeatureItem(Icons.Outlined.CloudSync, "Cloud backup (coming soon)")
                     }
                 }
                 Spacer(Modifier.height(24.dp))
@@ -155,35 +190,36 @@ fun PremiumScreen(
                     )
                     Spacer(Modifier.height(12.dp))
 
-                    // Monthly plan
+                    // Weekly plan (3-day free trial)
                     PlanCard(
-                        title = "Monthly",
-                        price = "$3.49",
-                        period = "/month",
-                        isSelected = selectedPlan == PlanType.MONTHLY,
-                        onClick = { selectedPlan = PlanType.MONTHLY }
+                        title = "Weekly",
+                        price = uiState.prices[PlanType.WEEKLY] ?: "$4.99",
+                        period = "/week",
+                        savings = "3-day free trial",
+                        isSelected = selectedPlan == PlanType.WEEKLY,
+                        onClick = { selectedPlan = PlanType.WEEKLY }
                     )
 
                     Spacer(Modifier.height(12.dp))
 
-                    // Yearly plan (Best Value)
+                    // Annual plan (Best Value)
                     PlanCard(
-                        title = "Yearly",
-                        price = "$19.99",
+                        title = "Annual",
+                        price = uiState.prices[PlanType.ANNUAL] ?: "$39.99",
                         period = "/year",
-                        originalPrice = "$41.88",
-                        savings = "Save 52%",
-                        isSelected = selectedPlan == PlanType.YEARLY,
+                        originalPrice = "$259.48",
+                        savings = "Save 84% · $3.33/mo",
+                        isSelected = selectedPlan == PlanType.ANNUAL,
                         isBestValue = true,
-                        onClick = { selectedPlan = PlanType.YEARLY }
+                        onClick = { selectedPlan = PlanType.ANNUAL }
                     )
 
                     Spacer(Modifier.height(12.dp))
 
-                    // Lifetime plan
+                    // Lifetime plan (one-time)
                     PlanCard(
                         title = "Lifetime",
-                        price = "$5.99",
+                        price = uiState.prices[PlanType.LIFETIME] ?: "$79.99",
                         period = "one-time",
                         isSelected = selectedPlan == PlanType.LIFETIME,
                         onClick = { selectedPlan = PlanType.LIFETIME }
@@ -200,7 +236,8 @@ fun PremiumScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Button(
-                        onClick = { viewModel.purchase(selectedPlan) },
+                        onClick = { activity?.let { viewModel.purchase(it, selectedPlan) } },
+                        enabled = !uiState.isLoading && activity != null,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),

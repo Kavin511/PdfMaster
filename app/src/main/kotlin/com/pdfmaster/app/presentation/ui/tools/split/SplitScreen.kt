@@ -28,10 +28,19 @@ fun SplitScreen(
     onNavigateBack: () -> Unit,
     onSelectPdf: (String) -> Unit,
     onSplitComplete: ((String) -> Unit)? = null,
+    onNavigateToPremium: () -> Unit = {},
     viewModel: SplitViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isPremium by viewModel.isPremium.collectAsStateWithLifecycle()
+    val remainingToday by viewModel.remainingToday.collectAsStateWithLifecycle()
+
+    com.pdfmaster.app.presentation.ui.premium.PremiumGateDialog(
+        prompt = uiState.premiumPrompt,
+        onDismiss = viewModel::clearPremiumPrompt,
+        onUpgrade = { viewModel.clearPremiumPrompt(); onNavigateToPremium() },
+    )
 
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -47,7 +56,7 @@ fun SplitScreen(
     LaunchedEffect(uiState.outputUri) {
         uiState.outputUri?.let { uri ->
             onSplitComplete?.invoke(uri)
-            onNavigateBack()
+            // Don't call onNavigateBack() here - navigation is handled by onSplitComplete
         }
     }
 
@@ -78,6 +87,17 @@ fun SplitScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Extract ${uiState.selectedPages.size} Pages")
                 }
+            }
+        },
+        bottomBar = {
+            if (uiState.pageCount > 0) {
+                com.pdfmaster.app.presentation.ui.premium.DailyQuotaHint(
+                    isPremium = isPremium,
+                    remaining = remainingToday,
+                    unitLabel = "splits",
+                    onUpgrade = onNavigateToPremium,
+                    modifier = Modifier.padding(16.dp),
+                )
             }
         },
         snackbarHost = {

@@ -5,12 +5,22 @@ import android.graphics.Bitmap
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pdfmaster.app.analytics.Analytics
+import com.pdfmaster.app.analytics.AnalyticsEvent
+import com.pdfmaster.app.analytics.Param
+import com.pdfmaster.app.analytics.Tool
+import com.pdfmaster.app.billing.DailyLimitedFeature
+import com.pdfmaster.app.billing.FeatureGate
+import com.pdfmaster.app.billing.GateResult
+import com.pdfmaster.app.billing.PremiumPrompt
 import com.pdfmaster.app.util.FileUtils
 import com.pdfmaster.app.util.PdfUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
@@ -25,13 +35,32 @@ data class SplitUiState(
     val isLoading: Boolean = false,
     val isSplitting: Boolean = false,
     val outputUri: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val premiumPrompt: PremiumPrompt? = null
 )
 
 @HiltViewModel
-class SplitViewModel @Inject constructor() : ViewModel() {
+class SplitViewModel @Inject constructor(
+    private val featureGate: FeatureGate,
+    private val analytics: Analytics,
+) : ViewModel() {
     private val _uiState = MutableStateFlow(SplitUiState())
     val uiState: StateFlow<SplitUiState> = _uiState.asStateFlow()
+
+    init {
+        analytics.track(AnalyticsEvent.ToolOpened(Tool.SPLIT))
+    }
+
+    val isPremium: StateFlow<Boolean> = featureGate.isPremium
+
+    /** Free splits left today (large number for premium users). */
+    val remainingToday: StateFlow<Int> =
+        featureGate.remainingDaily(DailyLimitedFeature.SPLIT)
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                DailyLimitedFeature.SPLIT.freeDailyLimit,
+            )
 
     fun loadPdf(context: Context, uri: Uri) {
         viewModelScope.launch {
@@ -100,10 +129,17 @@ class SplitViewModel @Inject constructor() : ViewModel() {
                 return@launch
             }
 
+            // Free tier: limited splits per day.
+            val gate = featureGate.consumeDaily(DailyLimitedFeature.SPLIT)
+            if (gate is GateResult.Blocked) {
+                _uiState.update { it.copy(premiumPrompt = gate.prompt) }
+                return@launch
+            }
+
             _uiState.update { it.copy(isSplitting = true, error = null) }
 
             try {
-                val outputDir = FileUtils.getOutputDirectory(context)
+                val outputDir = FileUtils.getSplitDir(context)
                 val baseName = _uiState.value.fileName.removeSuffix(".pdf")
                 val outputFile = File(outputDir, FileUtils.generateOutputFileName("${baseName}_split"))
 
@@ -111,6 +147,12 @@ class SplitViewModel @Inject constructor() : ViewModel() {
                 val success = PdfUtils.extractPages(context, uri, pageIndices, outputFile)
 
                 if (success) {
+                    analytics.track(
+                        AnalyticsEvent.ToolCompleted(
+                            Tool.SPLIT,
+                            mapOf(Param.PAGE_COUNT to pageIndices.size),
+                        )
+                    )
                     val outputUri = Uri.fromFile(outputFile).toString()
                     _uiState.update { it.copy(isSplitting = false, outputUri = outputUri) }
                     onComplete(outputUri)
@@ -119,6 +161,7 @@ class SplitViewModel @Inject constructor() : ViewModel() {
                 }
 
             } catch (e: Exception) {
+                analytics.track(AnalyticsEvent.ToolFailed(Tool.SPLIT, e.message))
                 _uiState.update {
                     it.copy(isSplitting = false, error = "Failed to split PDF: ${e.message}")
                 }
@@ -128,6 +171,10 @@ class SplitViewModel @Inject constructor() : ViewModel() {
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    fun clearPremiumPrompt() {
+        _uiState.update { it.copy(premiumPrompt = null) }
     }
 
     fun reset() {

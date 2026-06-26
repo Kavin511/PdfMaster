@@ -51,6 +51,7 @@ fun HomeScreen(
     onNavigateToSplit: () -> Unit,
     onNavigateToCompress: () -> Unit,
     onNavigateToConvert: () -> Unit,
+    onNavigateToUnlock: (String) -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToPremium: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel()
@@ -80,6 +81,15 @@ fun HomeScreen(
     ) { uris: List<Uri> ->
         if (uris.isNotEmpty()) {
             onNavigateToConvert()
+        }
+    }
+
+    // PDF picker for unlock
+    val unlockPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            onNavigateToUnlock(it.toString())
         }
     }
 
@@ -139,7 +149,8 @@ fun HomeScreen(
                 onMergeClick = onNavigateToMerge,
                 onSplitClick = onNavigateToSplit,
                 onCompressClick = onNavigateToCompress,
-                onConvertClick = onNavigateToConvert
+                onConvertClick = onNavigateToConvert,
+                onUnlockClick = { unlockPickerLauncher.launch(arrayOf("application/pdf")) }
             )
 
             // Tabs
@@ -315,7 +326,8 @@ private fun QuickToolsSection(
     onMergeClick: () -> Unit,
     onSplitClick: () -> Unit,
     onCompressClick: () -> Unit,
-    onConvertClick: () -> Unit
+    onConvertClick: () -> Unit,
+    onUnlockClick: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -370,6 +382,14 @@ private fun QuickToolsSection(
                     title = "Convert",
                     backgroundColor = ConvertColor,
                     onClick = onConvertClick
+                )
+            }
+            item {
+                QuickToolCard(
+                    icon = Icons.Outlined.LockOpen,
+                    title = "Unlock",
+                    backgroundColor = UnlockColor,
+                    onClick = onUnlockClick
                 )
             }
         }

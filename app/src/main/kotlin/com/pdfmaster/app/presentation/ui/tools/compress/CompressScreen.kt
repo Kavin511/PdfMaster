@@ -25,10 +25,19 @@ import com.pdfmaster.app.util.FileUtils
 fun CompressScreen(
     onNavigateBack: () -> Unit,
     onCompressComplete: (String) -> Unit,
+    onNavigateToPremium: () -> Unit = {},
     viewModel: CompressViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isPremium by viewModel.isPremium.collectAsStateWithLifecycle()
+    val remainingToday by viewModel.remainingToday.collectAsStateWithLifecycle()
+
+    com.pdfmaster.app.presentation.ui.premium.PremiumGateDialog(
+        prompt = uiState.premiumPrompt,
+        onDismiss = viewModel::clearPremiumPrompt,
+        onUpgrade = { viewModel.clearPremiumPrompt(); onNavigateToPremium() },
+    )
 
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { viewModel.loadPdf(context, it) }
@@ -87,7 +96,10 @@ fun CompressScreen(
                         Spacer(Modifier.height(16.dp))
                         Text("Original: ${FileUtils.formatFileSize(uiState.originalSize)}")
                         Text("Compressed: ${FileUtils.formatFileSize(uiState.compressedSize)}")
-                        Text("Saved: ${((uiState.originalSize - uiState.compressedSize) * 100 / uiState.originalSize)}%", color = MaterialTheme.colorScheme.primary)
+                        val savedPercent = if (uiState.originalSize > 0)
+                            (uiState.originalSize - uiState.compressedSize) * 100 / uiState.originalSize
+                        else 0
+                        Text("Saved: $savedPercent%", color = MaterialTheme.colorScheme.primary)
                         Spacer(Modifier.height(32.dp))
                         Button(onClick = { uiState.outputUri?.let { onCompressComplete(it) } }) { Text("Open Compressed PDF") }
                     }
@@ -122,6 +134,13 @@ fun CompressScreen(
                             }
                         }
                         Spacer(Modifier.weight(1f))
+                        com.pdfmaster.app.presentation.ui.premium.DailyQuotaHint(
+                            isPremium = isPremium,
+                            remaining = remainingToday,
+                            unitLabel = "compressions",
+                            onUpgrade = onNavigateToPremium,
+                            modifier = Modifier.padding(bottom = 12.dp),
+                        )
                         Button(onClick = { viewModel.compress(context) }, modifier = Modifier.fillMaxWidth(), shape = PdfMasterShapes.Button) { Text("Compress PDF") }
                     }
                 }

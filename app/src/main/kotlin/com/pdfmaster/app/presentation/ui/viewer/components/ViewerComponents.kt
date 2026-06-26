@@ -116,8 +116,10 @@ fun PageSliderDialog(
                 Slider(
                     value = selectedPage,
                     onValueChange = { selectedPage = it },
-                    valueRange = 1f..totalPages.toFloat(),
-                    steps = totalPages - 2
+                    valueRange = 1f..totalPages.toFloat().coerceAtLeast(2f),
+                    // steps must be >= 0; totalPages-2 underflows to -1 for a 1-page PDF
+                    // and throws IllegalArgumentException.
+                    steps = (totalPages - 2).coerceAtLeast(0)
                 )
             }
         },

@@ -35,6 +35,13 @@ import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
 import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import com.pdfmaster.app.presentation.theme.*
 
+/** Walks the ContextWrapper chain to find the hosting Activity (LocalContext may be wrapped). */
+private tailrec fun android.content.Context.findActivity(): android.app.Activity? = when (this) {
+    is android.app.Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivity()
+    else -> null
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun ScannerScreen(
@@ -74,18 +81,21 @@ fun ScannerScreen(
         }
     }
 
-    // Launch scanner when screen opens
-    LaunchedEffect(Unit) {
+    // Launch scanner when screen opens (re-keyed on permission so granting it triggers a retry)
+    LaunchedEffect(cameraPermission.status.isGranted) {
         if (cameraPermission.status.isGranted) {
-            scanner.getStartScanIntent(context as android.app.Activity)
-                .addOnSuccessListener { intentSender ->
-                    scannerLauncher.launch(
-                        androidx.activity.result.IntentSenderRequest.Builder(intentSender).build()
-                    )
-                }
-                .addOnFailureListener {
-                    // Handle failure
-                }
+            val activity = context.findActivity()
+            if (activity != null) {
+                scanner.getStartScanIntent(activity)
+                    .addOnSuccessListener { intentSender ->
+                        scannerLauncher.launch(
+                            androidx.activity.result.IntentSenderRequest.Builder(intentSender).build()
+                        )
+                    }
+                    .addOnFailureListener {
+                        // Handle failure
+                    }
+            }
         } else {
             cameraPermission.launchPermissionRequest()
         }
@@ -130,12 +140,14 @@ fun ScannerScreen(
 
                     Button(
                         onClick = {
-                            scanner.getStartScanIntent(context as android.app.Activity)
-                                .addOnSuccessListener { intentSender ->
-                                    scannerLauncher.launch(
-                                        androidx.activity.result.IntentSenderRequest.Builder(intentSender).build()
-                                    )
-                                }
+                            context.findActivity()?.let { activity ->
+                                scanner.getStartScanIntent(activity)
+                                    .addOnSuccessListener { intentSender ->
+                                        scannerLauncher.launch(
+                                            androidx.activity.result.IntentSenderRequest.Builder(intentSender).build()
+                                        )
+                                    }
+                            }
                         }
                     ) {
                         Icon(Icons.Outlined.CameraAlt, contentDescription = null)

@@ -146,9 +146,9 @@ dependencies {
     // Serialization
     implementation(libs.kotlinx.serialization.json)
 
-    // Ads & Billing (uncomment when ready)
+    // Ads & Billing
     // implementation(libs.play.services.ads)
-    // implementation(libs.billing.ktx)
+    implementation(libs.billing.ktx)
 
     // Firebase (uncomment when ready)
     // implementation(platform(libs.firebase.bom))

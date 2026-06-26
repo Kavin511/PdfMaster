@@ -17,6 +17,7 @@ import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tom_roush.pdfbox.text.TextPosition
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -160,38 +161,69 @@ object PdfUtils {
         imageUris: List<Uri>,
         outputFile: File
     ): Boolean = withContext(Dispatchers.IO) {
+        val document = PdfDocument()
+        var pagesAdded = 0
         try {
-            val document = PdfDocument()
-
             imageUris.forEachIndexed { index, uri ->
-                context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
-                    if (bitmap != null) {
-                        val pageInfo = PdfDocument.PageInfo.Builder(
-                            bitmap.width,
-                            bitmap.height,
-                            index + 1
-                        ).create()
+                ensureActive() // honor cancellation (e.g. user backs out mid-convert)
 
-                        val page = document.startPage(pageInfo)
-                        val canvas = page.canvas
-                        canvas.drawBitmap(bitmap, 0f, 0f, null)
-                        document.finishPage(page)
+                // 1) Read just the dimensions — no full-resolution allocation yet.
+                val bounds = android.graphics.BitmapFactory.Options().apply {
+                    inJustDecodeBounds = true
+                }
+                context.contentResolver.openInputStream(uri)?.use {
+                    android.graphics.BitmapFactory.decodeStream(it, null, bounds)
+                } ?: return@forEachIndexed
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@forEachIndexed
 
-                        bitmap.recycle()
-                    }
+                // 2) Downsample so the longest side <= MAX_IMAGE_DIMEN. A 12MP phone photo
+                //    would otherwise decode to ~48MB ARGB_8888 and OOM after a few pages.
+                val opts = android.graphics.BitmapFactory.Options().apply {
+                    inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, MAX_IMAGE_DIMEN)
+                }
+                val bitmap = context.contentResolver.openInputStream(uri)?.use {
+                    android.graphics.BitmapFactory.decodeStream(it, null, opts)
+                } ?: return@forEachIndexed
+
+                try {
+                    val pageInfo = PdfDocument.PageInfo.Builder(
+                        bitmap.width,
+                        bitmap.height,
+                        index + 1
+                    ).create()
+                    val page = document.startPage(pageInfo)
+                    page.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                    document.finishPage(page)
+                    pagesAdded++
+                } finally {
+                    bitmap.recycle() // recycle even if finishPage throws
                 }
             }
+
+            // Don't write an empty PDF if every image failed to decode.
+            if (pagesAdded == 0) return@withContext false
 
             FileOutputStream(outputFile).use { outputStream ->
                 document.writeTo(outputStream)
             }
-
-            document.close()
             true
         } catch (e: Exception) {
             false
+        } finally {
+            document.close() // always close, including on the exception path
         }
+    }
+
+    /** Largest allowed bitmap edge for image->PDF pages (~A4 at 300dpi). */
+    private const val MAX_IMAGE_DIMEN = 2500
+
+    /** Smallest power-of-two sample size that keeps both dimensions within [maxDimen]. */
+    private fun calculateInSampleSize(width: Int, height: Int, maxDimen: Int): Int {
+        var inSample = 1
+        while (width / inSample > maxDimen || height / inSample > maxDimen) {
+            inSample *= 2
+        }
+        return inSample
     }
 
     suspend fun getPageDimensions(

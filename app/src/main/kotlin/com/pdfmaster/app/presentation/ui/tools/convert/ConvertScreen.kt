@@ -1,6 +1,5 @@
 package com.pdfmaster.app.presentation.ui.tools.convert
 
-import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -16,51 +15,34 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pdfmaster.app.presentation.theme.*
+import com.pdfmaster.app.presentation.ui.premium.PremiumGateDialog
 import com.pdfmaster.app.util.FileUtils
-import com.pdfmaster.app.util.PdfUtils
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ConvertScreen(
     onNavigateBack: () -> Unit,
-    onConvertComplete: (String) -> Unit
+    onConvertComplete: (String) -> Unit,
+    onNavigateToPremium: () -> Unit = {},
+    viewModel: ConvertViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
-    var selectedImages by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    var isConverting by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val isPremium by viewModel.isPremium.collectAsStateWithLifecycle()
+    val selectedImages = uiState.selectedImages
 
-    val imagePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
-        selectedImages = uris
-    }
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris -> viewModel.addImages(uris) }
 
-    LaunchedEffect(isConverting) {
-        if (isConverting && selectedImages.isNotEmpty()) {
-            try {
-                val outputDir = FileUtils.getOutputDirectory(context)
-                val outputFile = File(outputDir, FileUtils.generateOutputFileName("Images_to_PDF"))
-
-                val success = withContext(Dispatchers.IO) {
-                    PdfUtils.imagesToPdf(context, selectedImages, outputFile)
-                }
-
-                if (success) {
-                    val outputUri = Uri.fromFile(outputFile).toString()
-                    onConvertComplete(outputUri)
-                } else {
-                    error = "Failed to convert images to PDF"
-                    isConverting = false
-                }
-            } catch (e: Exception) {
-                error = "Error: ${e.message}"
-                isConverting = false
-            }
-        }
-    }
+    PremiumGateDialog(
+        prompt = uiState.premiumPrompt,
+        onDismiss = viewModel::clearPremiumPrompt,
+        onUpgrade = { viewModel.clearPremiumPrompt(); onNavigateToPremium() },
+    )
 
     Scaffold(
         topBar = {
@@ -74,8 +56,10 @@ fun ConvertScreen(
             )
         },
         floatingActionButton = {
-            if (selectedImages.isNotEmpty() && !isConverting) {
-                ExtendedFloatingActionButton(onClick = { error = null; isConverting = true }) {
+            if (selectedImages.isNotEmpty() && !uiState.isConverting) {
+                ExtendedFloatingActionButton(
+                    onClick = { viewModel.convert(context, onConvertComplete) }
+                ) {
                     Icon(Icons.Outlined.Transform, null)
                     Spacer(Modifier.width(8.dp))
                     Text("Convert to PDF")
@@ -83,16 +67,12 @@ fun ConvertScreen(
             }
         },
         snackbarHost = {
-            error?.let { errorMessage ->
+            uiState.error?.let { errorMessage ->
                 Snackbar(
                     action = {
-                        TextButton(onClick = { error = null }) {
-                            Text("Dismiss")
-                        }
+                        TextButton(onClick = viewModel::clearError) { Text("Dismiss") }
                     }
-                ) {
-                    Text(errorMessage)
-                }
+                ) { Text(errorMessage) }
             }
         }
     ) { paddingValues ->
@@ -109,11 +89,19 @@ fun ConvertScreen(
                         Text("Convert Images to PDF", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(8.dp))
                         Text("Select images to combine into a PDF document", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (!isPremium) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "Free plan: up to ${viewModel.freeImageLimit} images per PDF",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         Spacer(Modifier.height(32.dp))
                         Button(onClick = { imagePicker.launch(arrayOf("image/*")) }) { Text("Select Images") }
                     }
                 }
-                isConverting -> {
+                uiState.isConverting -> {
                     Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                         CircularProgressIndicator()
                         Spacer(Modifier.height(16.dp))
@@ -130,6 +118,28 @@ fun ConvertScreen(
                                 Text("Add More")
                             }
                         }
+                        // Free-tier hint: warn when over the per-PDF image cap.
+                        if (!isPremium) {
+                            val over = selectedImages.size > viewModel.freeImageLimit
+                            AssistChip(
+                                onClick = { if (over) onNavigateToPremium() },
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                leadingIcon = {
+                                    Icon(
+                                        if (over) Icons.Outlined.WorkspacePremium else Icons.Outlined.Info,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp),
+                                    )
+                                },
+                                label = {
+                                    Text(
+                                        if (over) "Over the free limit of ${viewModel.freeImageLimit} — upgrade to convert"
+                                        else "Free plan: up to ${viewModel.freeImageLimit} images per PDF"
+                                    )
+                                },
+                            )
+                            Spacer(Modifier.height(4.dp))
+                        }
                         LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             itemsIndexed(selectedImages) { index, uri ->
                                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -137,7 +147,7 @@ fun ConvertScreen(
                                         Text("${index + 1}", fontWeight = FontWeight.Bold)
                                         Spacer(Modifier.width(12.dp))
                                         Text(FileUtils.getFileName(context, uri), modifier = Modifier.weight(1f))
-                                        IconButton(onClick = { selectedImages = selectedImages.filterIndexed { i, _ -> i != index } }) {
+                                        IconButton(onClick = { viewModel.removeImage(index) }) {
                                             Icon(Icons.Outlined.Close, "Remove")
                                         }
                                     }

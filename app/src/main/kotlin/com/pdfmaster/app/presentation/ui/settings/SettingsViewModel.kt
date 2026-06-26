@@ -22,6 +22,7 @@ data class SettingsUiState(
     val dynamicColorEnabled: Boolean = true,
     val keepScreenOn: Boolean = false,
     val isPremium: Boolean = false,
+    val analyticsEnabled: Boolean = true,
     val cacheCleared: String? = null,
     val cacheSize: String = ""
 )
@@ -60,6 +61,11 @@ class SettingsViewModel @Inject constructor(
                 _uiState.update { it.copy(isPremium = premium) }
             }
         }
+        viewModelScope.launch {
+            userPreferences.analyticsEnabled().collect { enabled ->
+                _uiState.update { it.copy(analyticsEnabled = enabled) }
+            }
+        }
     }
 
     private fun updateCacheSize() {
@@ -79,6 +85,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setKeepScreenOn(enabled: Boolean) {
         viewModelScope.launch { userPreferences.setKeepScreenOn(enabled) }
+    }
+
+    fun setAnalyticsEnabled(enabled: Boolean) {
+        viewModelScope.launch { userPreferences.setAnalyticsEnabled(enabled) }
     }
 
     fun clearCache() {

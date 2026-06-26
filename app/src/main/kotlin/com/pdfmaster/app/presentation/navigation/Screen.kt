@@ -46,17 +46,7 @@ sealed interface Screen {
     data object Compress : Screen
 
     @Serializable
-    data class CompressDocument(
-        val uri: String
-    ) : Screen
-
-    @Serializable
     data object Convert : Screen
-
-    @Serializable
-    data class ConvertImages(
-        val uris: List<String>
-    ) : Screen
 
     // Annotation
     @Serializable
@@ -84,12 +74,6 @@ sealed interface Screen {
         val uri: String
     ) : Screen
 
-    // OCR
-    @Serializable
-    data class OcrDocument(
-        val uri: String
-    ) : Screen
-
     // Form Filling
     @Serializable
     data class FillForm(
@@ -103,6 +87,7 @@ sealed interface Screen {
     @Serializable
     data object Premium : Screen
 
+    /** One-time paywall shown right after onboarding on first launch. */
     @Serializable
-    data object About : Screen
+    data object OnboardingPaywall : Screen
 }

@@ -118,6 +118,18 @@ fun SettingsScreen(
                 )
             }
 
+            // Privacy Section
+            item { SettingsSectionHeader("Privacy") }
+            item {
+                SettingsSwitch(
+                    icon = Icons.Outlined.Analytics,
+                    title = "Share usage analytics",
+                    subtitle = "Help improve the app with anonymous usage data. No document content is ever collected.",
+                    checked = uiState.analyticsEnabled,
+                    onCheckedChange = { viewModel.setAnalyticsEnabled(it) }
+                )
+            }
+
             // About Section
             item { SettingsSectionHeader("About") }
             item {

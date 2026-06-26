@@ -43,10 +43,17 @@ data class MergeFileItem(
 fun MergeScreen(
     onNavigateBack: () -> Unit,
     onMergeComplete: (String) -> Unit,
+    onNavigateToPremium: () -> Unit = {},
     viewModel: MergeViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    com.pdfmaster.app.presentation.ui.premium.PremiumGateDialog(
+        prompt = uiState.premiumPrompt,
+        onDismiss = viewModel::clearPremiumPrompt,
+        onUpgrade = { viewModel.clearPremiumPrompt(); onNavigateToPremium() },
+    )
 
     val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenMultipleDocuments()

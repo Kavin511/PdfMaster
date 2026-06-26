@@ -4,13 +4,22 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pdfmaster.app.analytics.Analytics
+import com.pdfmaster.app.analytics.AnalyticsEvent
+import com.pdfmaster.app.analytics.Tool
+import com.pdfmaster.app.billing.DailyLimitedFeature
+import com.pdfmaster.app.billing.FeatureGate
+import com.pdfmaster.app.billing.GateResult
+import com.pdfmaster.app.billing.PremiumPrompt
 import com.pdfmaster.app.domain.repository.CompressionQuality
 import com.pdfmaster.app.util.FileUtils
 import com.pdfmaster.app.util.PdfUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
@@ -25,13 +34,32 @@ data class CompressUiState(
     val isCompressing: Boolean = false,
     val isComplete: Boolean = false,
     val outputUri: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val premiumPrompt: PremiumPrompt? = null
 )
 
 @HiltViewModel
-class CompressViewModel @Inject constructor() : ViewModel() {
+class CompressViewModel @Inject constructor(
+    private val featureGate: FeatureGate,
+    private val analytics: Analytics,
+) : ViewModel() {
     private val _uiState = MutableStateFlow(CompressUiState())
     val uiState: StateFlow<CompressUiState> = _uiState.asStateFlow()
+
+    init {
+        analytics.track(AnalyticsEvent.ToolOpened(Tool.COMPRESS))
+    }
+
+    val isPremium: StateFlow<Boolean> = featureGate.isPremium
+
+    /** Free compressions left today (large number for premium users). */
+    val remainingToday: StateFlow<Int> =
+        featureGate.remainingDaily(DailyLimitedFeature.COMPRESS)
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                DailyLimitedFeature.COMPRESS.freeDailyLimit,
+            )
 
     fun loadPdf(context: Context, uri: Uri) {
         val name = FileUtils.getFileName(context, uri)
@@ -46,6 +74,13 @@ class CompressViewModel @Inject constructor() : ViewModel() {
     fun compress(context: Context, onComplete: ((String) -> Unit)? = null) {
         viewModelScope.launch {
             val uri = _uiState.value.uri ?: return@launch
+
+            // Free tier: limited compressions per day.
+            val gate = featureGate.consumeDaily(DailyLimitedFeature.COMPRESS)
+            if (gate is GateResult.Blocked) {
+                _uiState.update { it.copy(premiumPrompt = gate.prompt) }
+                return@launch
+            }
 
             _uiState.update { it.copy(isCompressing = true, error = null) }
 
@@ -65,6 +100,16 @@ class CompressViewModel @Inject constructor() : ViewModel() {
                 if (success) {
                     val compressedSize = outputFile.length()
                     val outputUri = Uri.fromFile(outputFile).toString()
+                    analytics.track(
+                        AnalyticsEvent.ToolCompleted(
+                            Tool.COMPRESS,
+                            mapOf(
+                                "original_size" to _uiState.value.originalSize,
+                                "compressed_size" to compressedSize,
+                                "quality" to _uiState.value.selectedQuality.name,
+                            ),
+                        )
+                    )
                     _uiState.update {
                         it.copy(
                             isCompressing = false,
@@ -79,6 +124,7 @@ class CompressViewModel @Inject constructor() : ViewModel() {
                 }
 
             } catch (e: Exception) {
+                analytics.track(AnalyticsEvent.ToolFailed(Tool.COMPRESS, e.message))
                 _uiState.update {
                     it.copy(isCompressing = false, error = "Failed to compress: ${e.message}")
                 }
@@ -88,6 +134,10 @@ class CompressViewModel @Inject constructor() : ViewModel() {
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    fun clearPremiumPrompt() {
+        _uiState.update { it.copy(premiumPrompt = null) }
     }
 
     fun reset() {

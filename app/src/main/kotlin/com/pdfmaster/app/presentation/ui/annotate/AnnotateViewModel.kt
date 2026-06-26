@@ -13,6 +13,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pdfmaster.app.billing.FeatureGate
+import com.pdfmaster.app.billing.GateResult
+import com.pdfmaster.app.billing.PremiumFeature
+import com.pdfmaster.app.billing.PremiumPrompt
 import com.pdfmaster.app.domain.model.AnnotationTool
 import com.pdfmaster.app.util.FileUtils
 import com.pdfmaster.app.util.PdfUtils
@@ -49,15 +53,22 @@ data class AnnotateUiState(
     val drawingPaths: Map<Int, List<Offset>> = emptyMap(),
     val annotations: List<AnnotationData> = emptyList(),
     val outputUri: String? = null,
-    val error: String? = null
+    val error: String? = null,
+    val premiumPrompt: PremiumPrompt? = null
 )
 
 @HiltViewModel
-class AnnotateViewModel @Inject constructor() : ViewModel() {
+class AnnotateViewModel @Inject constructor(
+    private val featureGate: FeatureGate,
+) : ViewModel() {
     private val _uiState = MutableStateFlow(AnnotateUiState())
     val uiState: StateFlow<AnnotateUiState> = _uiState.asStateFlow()
 
     private val undoStack = mutableListOf<AnnotationData>()
+
+    fun clearPremiumPrompt() {
+        _uiState.update { it.copy(premiumPrompt = null) }
+    }
 
     fun loadPdf(context: Context, uri: Uri) {
         viewModelScope.launch {
@@ -150,6 +161,15 @@ class AnnotateViewModel @Inject constructor() : ViewModel() {
     }
 
     fun save(context: Context, onComplete: ((String) -> Unit)? = null) {
+        // Saving annotations into the PDF is premium-only.
+        when (val gate = featureGate.require(PremiumFeature.ANNOTATE)) {
+            is GateResult.Allowed -> Unit
+            is GateResult.Blocked -> {
+                _uiState.update { it.copy(premiumPrompt = gate.prompt) }
+                return
+            }
+        }
+
         viewModelScope.launch {
             val sourceUri = _uiState.value.uri ?: return@launch
             _uiState.update { it.copy(isSaving = true, error = null) }

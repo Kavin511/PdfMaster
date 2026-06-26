@@ -4,6 +4,14 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pdfmaster.app.analytics.Analytics
+import com.pdfmaster.app.analytics.AnalyticsEvent
+import com.pdfmaster.app.analytics.Param
+import com.pdfmaster.app.analytics.Tool
+import com.pdfmaster.app.billing.FeatureGate
+import com.pdfmaster.app.billing.FreeTierLimits
+import com.pdfmaster.app.billing.GateResult
+import com.pdfmaster.app.billing.PremiumPrompt
 import com.pdfmaster.app.util.FileUtils
 import com.pdfmaster.app.util.PdfUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -19,14 +27,22 @@ data class MergeUiState(
     val files: List<MergeFileItem> = emptyList(),
     val isMerging: Boolean = false,
     val progress: Int = 0,
-    val error: String? = null
+    val error: String? = null,
+    val premiumPrompt: PremiumPrompt? = null
 )
 
 @HiltViewModel
-class MergeViewModel @Inject constructor() : ViewModel() {
+class MergeViewModel @Inject constructor(
+    private val featureGate: FeatureGate,
+    private val analytics: Analytics,
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MergeUiState())
     val uiState: StateFlow<MergeUiState> = _uiState.asStateFlow()
+
+    init {
+        analytics.track(AnalyticsEvent.ToolOpened(Tool.MERGE))
+    }
 
     fun addFile(file: MergeFileItem) {
         _uiState.update { it.copy(files = it.files + file) }
@@ -56,6 +72,17 @@ class MergeViewModel @Inject constructor() : ViewModel() {
                     throw IllegalStateException("No files to merge")
                 }
 
+                // Free tier: cap the number of files per merge.
+                val gate = featureGate.requireCount(
+                    count = _uiState.value.files.size,
+                    freeLimit = FreeTierLimits.MERGE_MAX_FILES,
+                    noun = "files",
+                )
+                if (gate is GateResult.Blocked) {
+                    _uiState.update { it.copy(isMerging = false, premiumPrompt = gate.prompt) }
+                    return@launch
+                }
+
                 val outputDir = FileUtils.getOutputDirectory(context)
                 val outputFile = File(outputDir, FileUtils.generateOutputFileName("Merged"))
 
@@ -64,6 +91,12 @@ class MergeViewModel @Inject constructor() : ViewModel() {
                 val success = PdfUtils.mergePdfs(context, sourceUris, outputFile)
 
                 if (success) {
+                    analytics.track(
+                        AnalyticsEvent.ToolCompleted(
+                            Tool.MERGE,
+                            mapOf(Param.FILE_COUNT to sourceUris.size),
+                        )
+                    )
                     _uiState.update { it.copy(isMerging = false, progress = 100) }
                     onComplete(Uri.fromFile(outputFile).toString())
                 } else {
@@ -71,6 +104,7 @@ class MergeViewModel @Inject constructor() : ViewModel() {
                 }
 
             } catch (e: Exception) {
+                analytics.track(AnalyticsEvent.ToolFailed(Tool.MERGE, e.message))
                 _uiState.update {
                     it.copy(isMerging = false, progress = 0, error = "Failed to merge: ${e.message}")
                 }
@@ -84,5 +118,9 @@ class MergeViewModel @Inject constructor() : ViewModel() {
 
     fun clearError() {
         _uiState.update { it.copy(error = null) }
+    }
+
+    fun clearPremiumPrompt() {
+        _uiState.update { it.copy(premiumPrompt = null) }
     }
 }

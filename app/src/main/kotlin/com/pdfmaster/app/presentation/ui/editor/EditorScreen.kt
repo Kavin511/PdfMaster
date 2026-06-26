@@ -63,6 +63,7 @@ fun EditorScreen(
     uri: String,
     title: String?,
     onNavigateBack: () -> Unit,
+    onNavigateToPremium: () -> Unit = {},
     viewModel: EditorViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -93,6 +94,12 @@ fun EditorScreen(
 
     // ============ Legacy Custom Editor (kept as fallback) ============
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    com.pdfmaster.app.presentation.ui.premium.PremiumGateDialog(
+        prompt = uiState.premiumPrompt,
+        onDismiss = viewModel::clearPremiumPrompt,
+        onUpgrade = { viewModel.clearPremiumPrompt(); onNavigateToPremium() },
+    )
 
     var showTextDialog by remember { mutableStateOf(false) }
     var textInputPosition by remember { mutableStateOf(Offset.Zero) }

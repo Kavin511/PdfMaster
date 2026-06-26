@@ -20,7 +20,12 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pdfmaster.app.billing.PremiumFeature
 import com.pdfmaster.app.presentation.theme.*
+import com.pdfmaster.app.presentation.ui.premium.PremiumGateDialog
+import com.pdfmaster.app.presentation.ui.premium.PremiumGateViewModel
 import com.pdfmaster.app.util.FileUtils
 import com.pdfmaster.app.util.PdfUtils
 import kotlinx.coroutines.launch
@@ -31,7 +36,9 @@ import java.io.File
 fun UnlockPdfScreen(
     uri: String,
     onNavigateBack: () -> Unit,
-    onUnlockSuccess: (String) -> Unit
+    onUnlockSuccess: (String) -> Unit,
+    onNavigateToPremium: () -> Unit = {},
+    gateViewModel: PremiumGateViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -43,11 +50,20 @@ fun UnlockPdfScreen(
     val parsedUri = remember { Uri.parse(uri) }
     val fileName = remember { FileUtils.getFileName(context, parsedUri) }
 
+    val gatePrompt by gateViewModel.prompt.collectAsStateWithLifecycle()
+    PremiumGateDialog(
+        prompt = gatePrompt,
+        onDismiss = gateViewModel::clearPrompt,
+        onUpgrade = { gateViewModel.clearPrompt(); onNavigateToPremium() },
+    )
+
     fun attemptUnlock() {
         if (password.isEmpty()) {
             error = "Please enter a password"
             return
         }
+        // Unlocking a PDF is premium-only.
+        if (!gateViewModel.ensure(PremiumFeature.UNLOCK_PDF)) return
 
         isUnlocking = true
         error = null
@@ -194,7 +210,9 @@ fun UnlockPdfScreen(
 fun SetPasswordScreen(
     uri: String,
     onNavigateBack: () -> Unit,
-    onPasswordSet: (String) -> Unit
+    onPasswordSet: (String) -> Unit,
+    onNavigateToPremium: () -> Unit = {},
+    gateViewModel: PremiumGateViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -207,6 +225,13 @@ fun SetPasswordScreen(
     val parsedUri = remember { Uri.parse(uri) }
     val fileName = remember { FileUtils.getFileName(context, parsedUri) }
 
+    val gatePrompt by gateViewModel.prompt.collectAsStateWithLifecycle()
+    PremiumGateDialog(
+        prompt = gatePrompt,
+        onDismiss = gateViewModel::clearPrompt,
+        onUpgrade = { gateViewModel.clearPrompt(); onNavigateToPremium() },
+    )
+
     fun protectPdf() {
         when {
             password.length < 4 -> {
@@ -218,6 +243,8 @@ fun SetPasswordScreen(
                 return
             }
         }
+        // Password protection is premium-only.
+        if (!gateViewModel.ensure(PremiumFeature.PASSWORD_PROTECT)) return
 
         isSaving = true
         error = null

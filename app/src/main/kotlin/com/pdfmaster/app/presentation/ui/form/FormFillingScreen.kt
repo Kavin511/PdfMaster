@@ -44,6 +44,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pdfmaster.app.domain.model.FormField
 import com.pdfmaster.app.presentation.theme.*
+import com.pdfmaster.app.presentation.ui.premium.PremiumGateDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,11 +52,18 @@ fun FormFillingScreen(
     uri: String,
     onNavigateBack: () -> Unit,
     onSaveComplete: (String) -> Unit,
+    onNavigateToPremium: () -> Unit = {},
     viewModel: FormFillingViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+
+    PremiumGateDialog(
+        prompt = uiState.premiumPrompt,
+        onDismiss = viewModel::clearPremiumPrompt,
+        onUpgrade = { viewModel.clearPremiumPrompt(); onNavigateToPremium() },
+    )
 
     var showFieldInput by remember { mutableStateOf(false) }
     var inputFieldId by remember { mutableStateOf<String?>(null) }

@@ -33,7 +33,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.pdfmaster.app.billing.PremiumFeature
 import com.pdfmaster.app.presentation.theme.*
+import com.pdfmaster.app.presentation.ui.premium.PremiumGateDialog
+import com.pdfmaster.app.presentation.ui.premium.PremiumGateViewModel
 import com.pdfmaster.app.util.FileUtils
 import com.pdfmaster.app.util.PdfUtils
 import kotlinx.coroutines.launch
@@ -44,11 +49,20 @@ import java.io.File
 fun AddSignatureScreen(
     uri: String,
     onNavigateBack: () -> Unit,
-    onSignComplete: ((String) -> Unit)? = null
+    onSignComplete: ((String) -> Unit)? = null,
+    onNavigateToPremium: () -> Unit = {},
+    gateViewModel: PremiumGateViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
+
+    val gatePrompt by gateViewModel.prompt.collectAsStateWithLifecycle()
+    PremiumGateDialog(
+        prompt = gatePrompt,
+        onDismiss = gateViewModel::clearPrompt,
+        onUpgrade = { gateViewModel.clearPrompt(); onNavigateToPremium() },
+    )
 
     var currentPage by remember { mutableStateOf(0) }
     var pageCount by remember { mutableStateOf(0) }
@@ -85,6 +99,8 @@ fun AddSignatureScreen(
                     if (signaturePosition != null && signatureBitmap != null) {
                         TextButton(
                             onClick = {
+                                // Placing & saving a signature is premium-only.
+                                if (!gateViewModel.ensure(PremiumFeature.SIGNATURE)) return@TextButton
                                 scope.launch {
                                     isSaving = true
                                     try {

@@ -67,14 +67,28 @@ fun NavGraph(
             ) + fadeOut(animationSpec = tween(ANIMATION_DURATION))
         }
     ) {
-        // Onboarding
+        // Onboarding -> one-time paywall (then Home)
         composable<Screen.Onboarding> {
             OnboardingScreen(
                 onComplete = {
-                    navController.navigate(Screen.Home) {
+                    navController.navigate(Screen.OnboardingPaywall) {
                         popUpTo(Screen.Onboarding) { inclusive = true }
                     }
                 }
+            )
+        }
+
+        // One-time post-onboarding paywall. Dismiss (skip / back / purchase) lands on Home,
+        // and the paywall is popped so it cannot be returned to.
+        composable<Screen.OnboardingPaywall> {
+            val goHome: () -> Unit = {
+                navController.navigate(Screen.Home) {
+                    popUpTo(Screen.OnboardingPaywall) { inclusive = true }
+                }
+            }
+            PremiumScreen(
+                onNavigateBack = goHome,
+                source = "onboarding",
             )
         }
 
@@ -98,6 +112,9 @@ fun NavGraph(
                 },
                 onNavigateToConvert = {
                     navController.navigate(Screen.Convert)
+                },
+                onNavigateToUnlock = { uri ->
+                    navController.navigate(Screen.UnlockPdf(uri = uri))
                 },
                 onNavigateToSettings = {
                     navController.navigate(Screen.Settings)
@@ -136,7 +153,8 @@ fun NavGraph(
             EditorScreen(
                 uri = route.uri,
                 title = route.title,
-                onNavigateBack = { navController.popBackStack() }
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToPremium = { navController.navigate(Screen.Premium) }
             )
         }
 
@@ -167,7 +185,8 @@ fun NavGraph(
                 onMergeComplete = { uri ->
                     navController.popBackStack()
                     navController.navigate(Screen.Viewer(uri = uri))
-                }
+                },
+                onNavigateToPremium = { navController.navigate(Screen.Premium) }
             )
         }
 
@@ -181,7 +200,8 @@ fun NavGraph(
                 onSplitComplete = { uri ->
                     navController.popBackStack()
                     navController.navigate(Screen.Viewer(uri = uri))
-                }
+                },
+                onNavigateToPremium = { navController.navigate(Screen.Premium) }
             )
         }
 
@@ -194,7 +214,8 @@ fun NavGraph(
                 onSplitComplete = { uri ->
                     navController.popBackStack()
                     navController.navigate(Screen.Viewer(uri = uri))
-                }
+                },
+                onNavigateToPremium = { navController.navigate(Screen.Premium) }
             )
         }
 
@@ -205,7 +226,8 @@ fun NavGraph(
                 onCompressComplete = { uri ->
                     navController.popBackStack()
                     navController.navigate(Screen.Viewer(uri = uri))
-                }
+                },
+                onNavigateToPremium = { navController.navigate(Screen.Premium) }
             )
         }
 
@@ -216,7 +238,8 @@ fun NavGraph(
                 onConvertComplete = { uri ->
                     navController.popBackStack()
                     navController.navigate(Screen.Viewer(uri = uri))
-                }
+                },
+                onNavigateToPremium = { navController.navigate(Screen.Premium) }
             )
         }
 
@@ -229,7 +252,8 @@ fun NavGraph(
                 onSaveComplete = { annotatedUri ->
                     navController.popBackStack()
                     navController.navigate(Screen.Viewer(uri = annotatedUri))
-                }
+                },
+                onNavigateToPremium = { navController.navigate(Screen.Premium) }
             )
         }
 
@@ -249,7 +273,8 @@ fun NavGraph(
                 onSignComplete = { signedUri ->
                     navController.popBackStack()
                     navController.navigate(Screen.Viewer(uri = signedUri))
-                }
+                },
+                onNavigateToPremium = { navController.navigate(Screen.Premium) }
             )
         }
 
@@ -279,7 +304,8 @@ fun NavGraph(
                 onSaveComplete = { savedUri ->
                     navController.popBackStack()
                     navController.navigate(Screen.Viewer(uri = savedUri))
-                }
+                },
+                onNavigateToPremium = { navController.navigate(Screen.Premium) }
             )
         }
 
@@ -292,7 +318,8 @@ fun NavGraph(
                 onUnlockSuccess = { unlockedUri ->
                     navController.popBackStack()
                     navController.navigate(Screen.Viewer(uri = unlockedUri))
-                }
+                },
+                onNavigateToPremium = { navController.navigate(Screen.Premium) }
             )
         }
 
@@ -304,7 +331,8 @@ fun NavGraph(
                 onPasswordSet = { protectedUri ->
                     navController.popBackStack()
                     navController.navigate(Screen.Viewer(uri = protectedUri))
-                }
+                },
+                onNavigateToPremium = { navController.navigate(Screen.Premium) }
             )
         }
     }

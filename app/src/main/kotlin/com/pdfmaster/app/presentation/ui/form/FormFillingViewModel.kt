@@ -13,6 +13,10 @@ import androidx.compose.ui.geometry.Rect
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pdfmaster.app.billing.FeatureGate
+import com.pdfmaster.app.billing.GateResult
+import com.pdfmaster.app.billing.PremiumFeature
+import com.pdfmaster.app.billing.PremiumPrompt
 import com.pdfmaster.app.domain.model.FormField
 import com.pdfmaster.app.util.FileUtils
 import com.pdfmaster.app.util.PdfUtils
@@ -41,7 +45,8 @@ data class FormFillingUiState(
     val isSaving: Boolean = false,
     val error: String? = null,
     val isAddingField: Boolean = false,
-    val addingFieldType: FieldType = FieldType.TEXT
+    val addingFieldType: FieldType = FieldType.TEXT,
+    val premiumPrompt: PremiumPrompt? = null
 )
 
 enum class FieldType {
@@ -49,10 +54,16 @@ enum class FieldType {
 }
 
 @HiltViewModel
-class FormFillingViewModel @Inject constructor() : ViewModel() {
+class FormFillingViewModel @Inject constructor(
+    private val featureGate: FeatureGate,
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(FormFillingUiState())
     val uiState: StateFlow<FormFillingUiState> = _uiState.asStateFlow()
+
+    fun clearPremiumPrompt() {
+        _uiState.update { it.copy(premiumPrompt = null) }
+    }
 
     fun loadPdf(context: Context, uri: Uri) {
         viewModelScope.launch {
@@ -240,6 +251,15 @@ class FormFillingViewModel @Inject constructor() : ViewModel() {
 
     fun savePdf(context: Context, onComplete: (Uri?) -> Unit) {
         val sourceUri = _uiState.value.uri ?: return
+
+        // Saving a filled form is premium-only.
+        when (val gate = featureGate.require(PremiumFeature.FORM_FILLING)) {
+            is GateResult.Allowed -> Unit
+            is GateResult.Blocked -> {
+                _uiState.update { it.copy(premiumPrompt = gate.prompt) }
+                return
+            }
+        }
 
         viewModelScope.launch {
             _uiState.update { it.copy(isSaving = true, error = null) }

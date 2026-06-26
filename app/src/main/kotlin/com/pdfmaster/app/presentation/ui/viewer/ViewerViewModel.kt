@@ -8,20 +8,29 @@ import android.print.PrintAttributes
 import android.print.PrintManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pdfmaster.app.analytics.Analytics
+import com.pdfmaster.app.analytics.AnalyticsEvent
 import com.pdfmaster.app.data.local.database.PdfDao
 import com.pdfmaster.app.data.local.entity.RecentFileEntity
 import com.pdfmaster.app.data.local.preferences.UserPreferences
 import com.pdfmaster.app.domain.repository.PdfReadingMode
+import com.pdfmaster.app.util.ExtractedTextBlock
 import com.pdfmaster.app.util.FileUtils
 import com.pdfmaster.app.util.PdfUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.File
 import javax.inject.Inject
 
 data class ViewerUiState(
@@ -51,13 +60,19 @@ data class SearchResultItem(
 @HiltViewModel
 class ViewerViewModel @Inject constructor(
     private val pdfDao: PdfDao,
-    private val userPreferences: UserPreferences
+    private val userPreferences: UserPreferences,
+    private val analytics: Analytics,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ViewerUiState())
     val uiState: StateFlow<ViewerUiState> = _uiState.asStateFlow()
 
     private val loadedPages = mutableMapOf<Int, Bitmap?>()
+
+    // In-PDF search: extracted text cache (per page) + the active search job and a guard.
+    private var extractedTextByPage: Map<Int, List<ExtractedTextBlock>>? = null
+    private var searchJob: Job? = null
+    private val searchMutex = Mutex()
 
     init {
         loadReadingModePreference()
@@ -86,11 +101,16 @@ class ViewerViewModel @Inject constructor(
 
     fun loadPdf(context: Context, uri: Uri, title: String?) {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null) }
-
-            // Clear cached pages when loading a new PDF or reloading
-            loadedPages.values.forEach { it?.recycle() }
+            // Drop references and clear the UI's page list in the SAME update so Compose
+            // stops drawing the old bitmaps. We deliberately do NOT recycle() here: the old
+            // bitmaps may still be bound to a frame in flight, and recycling them crashed
+            // with "trying to use a recycled bitmap". GC reclaims them once unreferenced.
             loadedPages.clear()
+            // Invalidate the search-text cache for the new document.
+            searchJob?.cancel()
+            extractedTextByPage = null
+
+            _uiState.update { it.copy(isLoading = true, error = null, pages = emptyList()) }
 
             try {
                 val fileName = title ?: FileUtils.getFileName(context, uri)
@@ -168,16 +188,33 @@ class ViewerViewModel @Inject constructor(
 
     fun unlockPdf(context: Context, uri: Uri, password: String) {
         viewModelScope.launch {
-            // In a real implementation, we'd validate the password with the PDF library
-            // For now, we'll just attempt to open it
-            _uiState.update {
-                it.copy(
-                    isUnlocked = true,
-                    passwordError = false,
-                    isPasswordProtected = false
-                )
+            _uiState.update { it.copy(passwordError = false) }
+
+            // Validate the password against the encrypted PDF before unlocking.
+            val correct = runCatching {
+                PdfUtils.verifyPassword(context, uri, password)
+            }.getOrDefault(false)
+
+            if (!correct) {
+                _uiState.update { it.copy(passwordError = true, isUnlocked = false) }
+                return@launch
             }
-            loadPdf(context, uri, null)
+
+            // Decrypt to a temp copy so rendering works without re-prompting for the password.
+            val outputFile = File(context.cacheDir, "unlocked_${System.currentTimeMillis()}.pdf")
+            val decrypted = runCatching {
+                PdfUtils.decryptPdf(context, uri, password, outputFile)
+            }.getOrDefault(false)
+
+            _uiState.update {
+                it.copy(isUnlocked = true, passwordError = false, isPasswordProtected = false)
+            }
+            // Prefer the decrypted copy; fall back to the original if decryption failed.
+            if (decrypted && outputFile.exists() && outputFile.length() > 0) {
+                loadPdf(context, Uri.fromFile(outputFile), null)
+            } else {
+                loadPdf(context, uri, null)
+            }
         }
     }
 
@@ -193,18 +230,61 @@ class ViewerViewModel @Inject constructor(
         _uiState.update { it.copy(showControls = !it.showControls) }
     }
 
-    fun search(query: String) {
+    fun search(context: Context, query: String) {
         _uiState.update { it.copy(searchQuery = query) }
 
-        if (query.length < 2) {
+        val q = query.trim()
+        if (q.length < 2) {
+            searchJob?.cancel()
             _uiState.update { it.copy(searchResults = emptyList()) }
             return
         }
 
-        viewModelScope.launch {
-            // In a real implementation, we'd search through the PDF text
-            // For now, return empty results
-            _uiState.update { it.copy(searchResults = emptyList()) }
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            val uri = _uiState.value.uri ?: return@launch
+            val pages = ensureTextExtracted(context, uri)
+
+            val results = pages.entries
+                .sortedBy { it.key }
+                .flatMap { (pageIndex, blocks) ->
+                    blocks
+                        .filter { it.text.contains(q, ignoreCase = true) }
+                        .map { block ->
+                            SearchResultItem(
+                                pageNumber = pageIndex + 1,
+                                text = q,
+                                context = block.text.trim().take(160),
+                            )
+                        }
+                }
+
+            analytics.track(AnalyticsEvent.SearchPerformed(queryLength = q.length, resultCount = results.size))
+            _uiState.update { it.copy(searchResults = results) }
+        }
+    }
+
+    /**
+     * Extracts text for every page once (via PdfUtils) and caches it, so subsequent
+     * keystrokes filter in-memory. Guarded by a mutex against concurrent extraction.
+     */
+    private suspend fun ensureTextExtracted(
+        context: Context,
+        uri: Uri,
+    ): Map<Int, List<ExtractedTextBlock>> {
+        extractedTextByPage?.let { return it }
+        return searchMutex.withLock {
+            extractedTextByPage?.let { return it }
+            val count = _uiState.value.pageCount
+            val map = LinkedHashMap<Int, List<ExtractedTextBlock>>(count)
+            for (page in 0 until count) {
+                if (!currentCoroutineContext().isActive) break
+                map[page] = runCatching {
+                    PdfUtils.extractTextBlocks(context, uri, page)
+                }.getOrDefault(emptyList())
+            }
+            extractedTextByPage = map
+            map
         }
     }
 

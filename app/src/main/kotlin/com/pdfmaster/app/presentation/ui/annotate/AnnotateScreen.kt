@@ -33,6 +33,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pdfmaster.app.domain.model.AnnotationTool
 import com.pdfmaster.app.presentation.theme.*
+import com.pdfmaster.app.presentation.ui.premium.PremiumGateDialog
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,6 +41,7 @@ fun AnnotateScreen(
     uri: String,
     onNavigateBack: () -> Unit,
     onSaveComplete: ((String) -> Unit)? = null,
+    onNavigateToPremium: () -> Unit = {},
     viewModel: AnnotateViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -47,6 +49,12 @@ fun AnnotateScreen(
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(uri) { viewModel.loadPdf(context, Uri.parse(uri)) }
+
+    PremiumGateDialog(
+        prompt = uiState.premiumPrompt,
+        onDismiss = viewModel::clearPremiumPrompt,
+        onUpgrade = { viewModel.clearPremiumPrompt(); onNavigateToPremium() },
+    )
 
     // Handle save completion
     LaunchedEffect(uiState.outputUri) {
@@ -157,11 +165,18 @@ fun AnnotateScreen(
                     itemsIndexed(uiState.pages) { index, bitmap ->
                         Card(
                             modifier = Modifier.fillMaxWidth()
-                                .pointerInput(Unit) {
-                                    detectDragGestures { change, _ ->
-                                        if (uiState.selectedTool == AnnotationTool.FREEHAND) {
-                                            viewModel.addDrawingPoint(index, change.position)
-                                        }
+                                // Key on the tool so the detector rebinds when it changes
+                                // (pointerInput(Unit) captured a stale tool). onDragEnd
+                                // commits the stroke via finishStroke() — without it the
+                                // freehand path accumulated points but never saved anything.
+                                .pointerInput(uiState.selectedTool) {
+                                    if (uiState.selectedTool == AnnotationTool.FREEHAND) {
+                                        detectDragGestures(
+                                            onDrag = { change, _ ->
+                                                viewModel.addDrawingPoint(index, change.position)
+                                            },
+                                            onDragEnd = { viewModel.finishStroke(index) },
+                                        )
                                     }
                                 }
                         ) {

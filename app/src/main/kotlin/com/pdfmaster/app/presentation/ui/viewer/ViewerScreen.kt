@@ -177,7 +177,7 @@ fun ViewerScreen(
         SearchSheet(
             query = uiState.searchQuery,
             results = uiState.searchResults,
-            onQueryChange = { viewModel.search(it) },
+            onQueryChange = { viewModel.search(context, it) },
             onResultClick = { pageNumber ->
                 scope.launch {
                     listState.animateScrollToItem(pageNumber)

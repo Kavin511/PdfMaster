@@ -2,6 +2,8 @@ package com.pdfmaster.app.presentation.ui.onboarding
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pdfmaster.app.analytics.Analytics
+import com.pdfmaster.app.analytics.AnalyticsEvent
 import com.pdfmaster.app.data.local.preferences.UserPreferences
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,7 +15,8 @@ import javax.inject.Inject
 
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
-    private val userPreferences: UserPreferences
+    private val userPreferences: UserPreferences,
+    private val analytics: Analytics,
 ) : ViewModel() {
 
     private val _isFirstLaunch = MutableStateFlow(true)
@@ -21,6 +24,7 @@ class OnboardingViewModel @Inject constructor(
 
     init {
         checkFirstLaunch()
+        analytics.track(AnalyticsEvent.OnboardingStarted)
     }
 
     private fun checkFirstLaunch() {
@@ -33,6 +37,7 @@ class OnboardingViewModel @Inject constructor(
         viewModelScope.launch {
             userPreferences.setFirstLaunchComplete()
             _isFirstLaunch.value = false
+            analytics.track(AnalyticsEvent.OnboardingCompleted)
         }
     }
 }

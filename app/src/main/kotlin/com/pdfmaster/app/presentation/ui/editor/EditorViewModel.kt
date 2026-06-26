@@ -14,6 +14,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.pdfmaster.app.analytics.Analytics
+import com.pdfmaster.app.analytics.AnalyticsEvent
+import com.pdfmaster.app.billing.FeatureGate
+import com.pdfmaster.app.billing.GateResult
+import com.pdfmaster.app.billing.PremiumFeature
+import com.pdfmaster.app.billing.PremiumPrompt
 import com.pdfmaster.app.util.ExtractedTextBlock
 import com.pdfmaster.app.util.FileUtils
 import com.pdfmaster.app.util.MuPdfTextExtractor
@@ -135,14 +141,41 @@ data class EditorUiState(
     // Rectangle drag state (for whiteout/highlight)
     val isDraggingRect: Boolean = false,
     val rectStartPoint: Offset? = null,
-    val rectEndPoint: Offset? = null
+    val rectEndPoint: Offset? = null,
+    // Premium gating
+    val premiumPrompt: PremiumPrompt? = null
 )
 
 @HiltViewModel
-class EditorViewModel @Inject constructor() : ViewModel() {
+class EditorViewModel @Inject constructor(
+    private val featureGate: FeatureGate,
+    private val analytics: Analytics,
+) : ViewModel() {
 
     private val _uiState = MutableStateFlow(EditorUiState())
     val uiState: StateFlow<EditorUiState> = _uiState.asStateFlow()
+
+    /**
+     * Text editing is premium. Returns true if allowed; otherwise raises the paywall prompt.
+     * Gated at every text mutation entry point so free users can still view/annotate but
+     * can't add, edit, or delete PDF text.
+     */
+    private fun ensureTextEditingAllowed(): Boolean {
+        return when (val gate = featureGate.require(PremiumFeature.TEXT_EDITING)) {
+            is GateResult.Allowed -> {
+                analytics.track(AnalyticsEvent.EditorTextEdited)
+                true
+            }
+            is GateResult.Blocked -> {
+                _uiState.update { it.copy(premiumPrompt = gate.prompt) }
+                false
+            }
+        }
+    }
+
+    fun clearPremiumPrompt() {
+        _uiState.update { it.copy(premiumPrompt = null) }
+    }
 
     private val undoStack = mutableListOf<List<PdfElement>>()
     private val redoStack = mutableListOf<List<PdfElement>>()
@@ -271,10 +304,21 @@ class EditorViewModel @Inject constructor() : ViewModel() {
                     MuPdfTextExtractor.extractTextBlocks(context, uri, pageIndex)
                 }
 
-                // If MuPDF didn't find text, try OCR (for scanned PDFs)
+                // If MuPDF didn't find text, fall back to OCR (for scanned PDFs).
+                // OCR is a premium feature, so gate it before running.
                 if (textBlocks.isEmpty()) {
-                    textBlocks = withContext(Dispatchers.IO) {
-                        OcrUtils.extractTextWithOcr(context, uri, pageIndex)
+                    when (val gate = featureGate.require(PremiumFeature.OCR)) {
+                        is GateResult.Allowed -> {
+                            textBlocks = withContext(Dispatchers.IO) {
+                                OcrUtils.extractTextWithOcr(context, uri, pageIndex)
+                            }
+                        }
+                        is GateResult.Blocked -> {
+                            _uiState.update {
+                                it.copy(isExtracting = false, premiumPrompt = gate.prompt)
+                            }
+                            return@launch
+                        }
                     }
                 }
 
@@ -359,6 +403,7 @@ class EditorViewModel @Inject constructor() : ViewModel() {
      * Whiteout is only applied during save, not during live editing for seamless UX
      */
     fun editExistingText(blockId: String, newText: String) {
+        if (!ensureTextEditingAllowed()) return
         val textBlock = _uiState.value.extractedTextBlocks.find { it.id == blockId } ?: return
 
         if (newText.isBlank()) {
@@ -411,6 +456,7 @@ class EditorViewModel @Inject constructor() : ViewModel() {
      * Delete existing PDF text
      */
     fun deleteExistingText(blockId: String) {
+        if (!ensureTextEditingAllowed()) return
         val textBlock = _uiState.value.extractedTextBlocks.find { it.id == blockId } ?: return
 
         saveToUndoStack()
@@ -443,6 +489,7 @@ class EditorViewModel @Inject constructor() : ViewModel() {
      */
     fun addTextElement(x: Float, y: Float, text: String) {
         if (text.isBlank()) return
+        if (!ensureTextEditingAllowed()) return
         saveToUndoStack()
 
         // Try to find nearby text to match font
@@ -688,36 +735,32 @@ class EditorViewModel @Inject constructor() : ViewModel() {
     }
 
     fun undo() {
-        if (undoStack.isNotEmpty()) {
-            val pageIndex = _uiState.value.currentPage
-            redoStack.add(allPagesElements[pageIndex]?.toList() ?: emptyList())
+        // Pop first with removeLastOrNull() so a double-tap within one frame can't throw
+        // NoSuchElementException (the isNotEmpty() check was not race-safe).
+        val previousState = undoStack.removeLastOrNull() ?: return
+        val pageIndex = _uiState.value.currentPage
+        redoStack.add(allPagesElements[pageIndex]?.toList() ?: emptyList())
+        allPagesElements[pageIndex] = previousState.toMutableList()
 
-            val previousState = undoStack.removeLast()
-            allPagesElements[pageIndex] = previousState.toMutableList()
-
-            _uiState.update {
-                it.copy(
-                    elements = previousState,
-                    hasChanges = allPagesElements.values.any { it.isNotEmpty() }
-                )
-            }
+        _uiState.update {
+            it.copy(
+                elements = previousState,
+                hasChanges = allPagesElements.values.any { it.isNotEmpty() }
+            )
         }
     }
 
     fun redo() {
-        if (redoStack.isNotEmpty()) {
-            val pageIndex = _uiState.value.currentPage
-            undoStack.add(allPagesElements[pageIndex]?.toList() ?: emptyList())
+        val nextState = redoStack.removeLastOrNull() ?: return
+        val pageIndex = _uiState.value.currentPage
+        undoStack.add(allPagesElements[pageIndex]?.toList() ?: emptyList())
+        allPagesElements[pageIndex] = nextState.toMutableList()
 
-            val nextState = redoStack.removeLast()
-            allPagesElements[pageIndex] = nextState.toMutableList()
-
-            _uiState.update {
-                it.copy(
-                    elements = nextState,
-                    hasChanges = true
-                )
-            }
+        _uiState.update {
+            it.copy(
+                elements = nextState,
+                hasChanges = true
+            )
         }
     }
 
@@ -754,10 +797,25 @@ class EditorViewModel @Inject constructor() : ViewModel() {
                     }
 
                     if (success && tempFile.exists() && tempFile.length() > 0) {
-                        // Delete original and rename temp to original
-                        withContext(Dispatchers.IO) {
-                            originalFile.delete()
-                            tempFile.renameTo(originalFile)
+                        // Replace the original ONLY after the temp is confirmed good, and
+                        // never delete the original first (a failed rename used to wipe the
+                        // user's file). Same dir => renameTo is atomic; copyTo is the fallback.
+                        val replaced = withContext(Dispatchers.IO) {
+                            if (tempFile.renameTo(originalFile)) {
+                                true
+                            } else {
+                                runCatching {
+                                    tempFile.copyTo(originalFile, overwrite = true)
+                                    tempFile.delete()
+                                }.isSuccess
+                            }
+                        }
+                        if (!replaced) {
+                            tempFile.delete()
+                            _uiState.update {
+                                it.copy(isSaving = false, error = "Failed to save PDF")
+                            }
+                            return@launch
                         }
                         outputFile = originalFile
                     } else {
@@ -791,6 +849,8 @@ class EditorViewModel @Inject constructor() : ViewModel() {
                 // Clear modified text block tracking for saved file
                 modifiedTextBlockIds.clear()
                 allPagesExtractedText.clear()
+
+                analytics.track(AnalyticsEvent.EditorSaved(replaceOriginal = replaceOriginal))
 
                 _uiState.update {
                     it.copy(
@@ -827,6 +887,7 @@ class EditorViewModel @Inject constructor() : ViewModel() {
             val textEdits = mutableListOf<OpenPdfEditor.TextEdit>()
             val whiteouts = mutableListOf<OpenPdfEditor.WhiteoutRect>()
             val images = mutableListOf<OpenPdfEditor.ImageOverlay>()
+            val highlights = mutableListOf<OpenPdfEditor.HighlightRect>()
 
             val pageCount = PdfUtils.getPageCount(context, sourceUri)
 
@@ -896,8 +957,16 @@ class EditorViewModel @Inject constructor() : ViewModel() {
                             )
                         }
                         is PdfElement.HighlightElement -> {
-                            // Highlights are rendered as semi-transparent overlays
-                            // For now, skip - OpenPDF doesn't easily support transparency
+                            highlights.add(
+                                OpenPdfEditor.HighlightRect(
+                                    pageIndex = pageIndex,
+                                    x = element.x / bitmapScale,
+                                    y = element.y / bitmapScale,
+                                    width = element.width / bitmapScale,
+                                    height = element.height / bitmapScale,
+                                    color = element.color,
+                                )
+                            )
                         }
                         is PdfElement.DrawingElement -> {
                             // Drawings need to be converted to PDF paths
@@ -927,7 +996,8 @@ class EditorViewModel @Inject constructor() : ViewModel() {
                 outputFile = outputFile,
                 textEdits = textEdits,
                 whiteouts = whiteouts,
-                images = images
+                images = images,
+                highlights = highlights
             )
 
         } catch (e: Exception) {

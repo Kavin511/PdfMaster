@@ -38,6 +38,7 @@ class UserPreferences @Inject constructor(
         val APP_LOCK_ENABLED = booleanPreferencesKey("app_lock_enabled")
         val BIOMETRIC_ENABLED = booleanPreferencesKey("biometric_enabled")
         val IS_PREMIUM = booleanPreferencesKey("is_premium")
+        val ANALYTICS_ENABLED = booleanPreferencesKey("analytics_enabled")
         val DAILY_COMPRESS_COUNT = intPreferencesKey("daily_compress_count")
         val DAILY_MERGE_COUNT = intPreferencesKey("daily_merge_count")
         val LAST_RESET_DATE = stringPreferencesKey("last_reset_date")
@@ -132,6 +133,10 @@ class UserPreferences @Inject constructor(
     fun getBiometricEnabled(): Flow<Boolean> = getPreference(Keys.BIOMETRIC_ENABLED, false)
     suspend fun setBiometricEnabled(enabled: Boolean) = setPreference(Keys.BIOMETRIC_ENABLED, enabled)
 
+    // Analytics consent (default: enabled). Honored centrally by ConsentAwareAnalytics.
+    fun analyticsEnabled(): Flow<Boolean> = getPreference(Keys.ANALYTICS_ENABLED, true)
+    suspend fun setAnalyticsEnabled(enabled: Boolean) = setPreference(Keys.ANALYTICS_ENABLED, enabled)
+
     // Premium
     fun isPremium(): Flow<Boolean> = getPreference(Keys.IS_PREMIUM, false)
     suspend fun setPremiumStatus(isPremium: Boolean) = setPreference(Keys.IS_PREMIUM, isPremium)
@@ -174,6 +179,49 @@ class UserPreferences @Inject constructor(
             preferences[Keys.DAILY_MERGE_COUNT] = 0
             preferences[Keys.LAST_RESET_DATE] = today
         }
+    }
+
+    // Generic per-day quotas (used by FeatureGate). Each feature tracks its own
+    // count + date stamp under dynamic keys, so usage resets automatically each day.
+    private fun dailyCountKey(feature: String) = intPreferencesKey("daily_count_$feature")
+    private fun dailyDateKey(feature: String) = stringPreferencesKey("daily_date_$feature")
+
+    /**
+     * Atomically tries to consume one use of [feature] for today against [limit].
+     * Returns true if a use was available (and consumed), false if the limit is reached.
+     */
+    suspend fun tryConsumeDaily(feature: String, limit: Int): Boolean {
+        val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+        var allowed = false
+        dataStore.edit { preferences ->
+            val isToday = preferences[dailyDateKey(feature)] == today
+            val used = if (isToday) (preferences[dailyCountKey(feature)] ?: 0) else 0
+            if (used < limit) {
+                preferences[dailyCountKey(feature)] = used + 1
+                preferences[dailyDateKey(feature)] = today
+                allowed = true
+            } else {
+                // At limit: keep the stamp current so reads stay consistent.
+                preferences[dailyCountKey(feature)] = used
+                preferences[dailyDateKey(feature)] = today
+            }
+        }
+        return allowed
+    }
+
+    /** Remaining free uses of [feature] today against [limit]. */
+    fun remainingDaily(feature: String, limit: Int): Flow<Int> {
+        return dataStore.data
+            .catch { exception ->
+                if (exception is IOException) emit(emptyPreferences()) else throw exception
+            }
+            .map { preferences ->
+                val today = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
+                val used = if (preferences[dailyDateKey(feature)] == today) {
+                    preferences[dailyCountKey(feature)] ?: 0
+                } else 0
+                (limit - used).coerceAtLeast(0)
+            }
     }
 
     // First Launch
