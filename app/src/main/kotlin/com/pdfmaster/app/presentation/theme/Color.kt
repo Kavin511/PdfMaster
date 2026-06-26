@@ -2,12 +2,12 @@ package com.pdfmaster.app.presentation.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Primary Brand Colors - Professional Blue (Zoom-inspired)
-val Primary = Color(0xFF2563EB)
-val PrimaryLight = Color(0xFF3B82F6)
-val PrimaryDark = Color(0xFF1D4ED8)
-val PrimaryContainer = Color(0xFFDBEAFE)
-val OnPrimaryContainer = Color(0xFF1E3A8A)
+// Primary Brand Colors - Warm Terracotta (matches the app logo)
+val Primary = Color(0xFFDD6F4C)
+val PrimaryLight = Color(0xFFF0936A)
+val PrimaryDark = Color(0xFFC1542F)
+val PrimaryContainer = Color(0xFFFBE0D4)
+val OnPrimaryContainer = Color(0xFF7C2D12)
 
 // Secondary - Slate Gray for professional look
 val Secondary = Color(0xFF64748B)
@@ -52,7 +52,7 @@ val OutlineVariantDark = Color(0xFF334155)
 
 // Special Colors
 val ScrimColor = Color(0x80000000)
-val RippleColor = Color(0x1A2563EB)
+val RippleColor = Color(0x1ADD6F4C)
 
 // PDF Tool Colors
 val ScanColor = Color(0xFF3B82F6)
@@ -63,6 +63,7 @@ val ConvertColor = Color(0xFFEC4899)
 val EditColor = Color(0xFF6366F1)
 val SignColor = Color(0xFF14B8A6)
 val ProtectColor = Color(0xFFEF4444)
+val UnlockColor = Color(0xFF22C55E)
 val OcrColor = Color(0xFF06B6D4)
 
 // Annotation Colors

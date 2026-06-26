@@ -13,6 +13,20 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
+# Keep @Serializable types used for type-safe Navigation (Screen.kt). Without this,
+# nav-arg routing breaks at runtime in release builds.
+-keep,allowobfuscation,allowshrinking @kotlinx.serialization.Serializable class **
+-keepclassmembers class ** {
+    @kotlinx.serialization.SerialName <fields>;
+}
+-keepclassmembers class **$Companion {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+-if @kotlinx.serialization.Serializable class **
+-keepclassmembers class <1> {
+    static <1>$Companion Companion;
+}
+
 # Keep Room entities
 -keep class * extends androidx.room.RoomDatabase
 -keep @androidx.room.Entity class *
@@ -27,8 +41,42 @@
 -keep class com.pdfmaster.app.domain.model.** { *; }
 -keep class com.pdfmaster.app.data.local.entity.** { *; }
 
-# Keep Compose
--keep class androidx.compose.** { *; }
+# Compose ships its own consumer ProGuard rules. The previous over-broad
+# `-keep class androidx.compose.** { *; }` defeated most of R8's Compose
+# optimizations (lambda grouping, sourceInformation stripping, ComposerImpl
+# devirtualization). Removed deliberately — do NOT re-add a blanket keep.
+
+# --- Play Billing: uses Parcelable/reflection internally ---
+-keep class com.android.billingclient.api.** { *; }
+
+# --- ComPDFKit (loaded reflectively via Class.forName in PdfMasterApp) ---
+-keep class com.compdf.** { *; }
+-keep class com.compdfkit.** { *; }
+-dontwarn com.compdf.**
+-dontwarn com.compdfkit.**
+
+# --- PDFBox-Android + BouncyCastle (reflection for fonts/encoding + crypto) ---
+-keep class com.tom_roush.pdfbox.** { *; }
+-keep class org.bouncycastle.** { *; }
+-dontwarn com.tom_roush.pdfbox.**
+-dontwarn org.bouncycastle.**
+
+# --- MuPDF (JNI: native method names MUST be preserved) ---
+-keep class com.artifex.mupdf.fitz.** { *; }
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+-dontwarn com.artifex.mupdf.fitz.**
+
+# --- OpenPDF (reflection) ---
+-keep class com.github.librepdf.** { *; }
+-keep class com.lowagie.text.** { *; }
+-dontwarn com.lowagie.text.**
+
+# --- ML Kit (document scanner / text recognition) ---
+-keep class com.google.mlkit.** { *; }
+-keep class com.google.android.gms.internal.mlkit_** { *; }
+-dontwarn com.google.mlkit.**
 
 # Remove logging in release
 -assumenosideeffects class android.util.Log {

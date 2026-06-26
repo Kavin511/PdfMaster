@@ -1,13 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Gradient blue background -->
-    <path
-        android:fillColor="#2563EB"
-        android:pathData="M0,0 L108,0 L108,108 L0,108 Z"/>
-
+    <!-- Warm clay -> terracotta diagonal gradient (Claude-inspired warmth, not red/blue) -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="6" android:startY="6"
+                android:endX="102" android:endY="102">
+                <item android:offset="0" android:color="#FFF0936A"/>
+                <item android:offset="0.55" android:color="#FFDD6F4C"/>
+                <item android:offset="1" android:color="#FFC1542F"/>
+            </gradient>
+        </aapt:attr>
+    </path>
 </vector>

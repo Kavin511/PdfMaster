@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
+    <!-- App-private dirs only. These are safe to expose via FileProvider because they
+         are inside the app sandbox. The previous config also had
+         <external-path name="external" path="." /> which mapped to the ENTIRE shared
+         external storage root — that was a real information-disclosure hole and has
+         been removed. The app's share flow copies into cacheDir before sharing, and
+         tool output lands in the app-scoped external Documents dir, both covered here. -->
     <cache-path name="cache" path="." />
     <files-path name="files" path="." />
     <external-files-path name="external_files" path="." />
     <external-cache-path name="external_cache" path="." />
-    <external-path name="external" path="." />
 </paths>
