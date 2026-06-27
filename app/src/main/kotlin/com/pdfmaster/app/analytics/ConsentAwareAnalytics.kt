@@ -16,8 +16,9 @@ import javax.inject.Singleton
  * Required for Google Play's User Data policy, GDPR/ePrivacy consent, and Firebase's
  * requirement to honor collection toggles.
  *
- * Default consent is ON ([UserPreferences.analyticsEnabled] defaults to true); a Settings
- * switch flips it. When off we also tell the delegate to stop collecting and clear the id.
+ * GDPR opt-in: consent defaults to OFF ([UserPreferences.analyticsEnabled] defaults to false)
+ * until the user explicitly accepts the consent prompt; a Settings switch flips it. When off we
+ * also tell the delegate to stop collecting and clear the id.
  */
 @Singleton
 class ConsentAwareAnalytics @Inject constructor(
@@ -27,9 +28,14 @@ class ConsentAwareAnalytics @Inject constructor(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    /** Cheap in-memory mirror of the persisted consent flag, kept in sync below. */
+    /**
+     * Cheap in-memory mirror of the persisted consent flag, kept in sync below. Starts FALSE
+     * (deny by default): the persisted value loads asynchronously, and the very first event
+     * (`app_open`, fired synchronously at process start) must not be forwarded before consent
+     * is known.
+     */
     @Volatile
-    private var enabled: Boolean = true
+    private var enabled: Boolean = false
 
     init {
         scope.launch {

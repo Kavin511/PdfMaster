@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 
 data class OnboardingPage(
@@ -83,6 +84,15 @@ fun OnboardingScreen(
 ) {
     val pagerState = rememberPagerState(pageCount = { onboardingPages.size })
     val scope = rememberCoroutineScope()
+
+    // GDPR opt-in: ask once, on first run. Analytics stays off unless the user accepts.
+    val showAnalyticsConsent by viewModel.showAnalyticsConsent.collectAsStateWithLifecycle()
+    if (showAnalyticsConsent) {
+        AnalyticsConsentDialog(
+            onAllow = { viewModel.respondToAnalyticsConsent(true) },
+            onDecline = { viewModel.respondToAnalyticsConsent(false) },
+        )
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Pager
@@ -183,6 +193,32 @@ fun OnboardingScreen(
             }
         }
     }
+}
+
+@Composable
+private fun AnalyticsConsentDialog(
+    onAllow: () -> Unit,
+    onDecline: () -> Unit,
+) {
+    AlertDialog(
+        // Dismissing without choosing "Allow" must NOT grant consent.
+        onDismissRequest = onDecline,
+        icon = { Icon(Icons.Outlined.Analytics, contentDescription = null) },
+        title = { Text("Help improve PdfMaster?") },
+        text = {
+            Text(
+                "We'd like to collect anonymous usage analytics (which features are used, " +
+                    "crashes) to improve the app. We never collect your documents, file names, " +
+                    "or any personal data.\n\nYou can change this anytime in Settings.",
+            )
+        },
+        confirmButton = {
+            Button(onClick = onAllow) { Text("Allow") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDecline) { Text("No thanks") }
+        },
+    )
 }
 
 @Composable

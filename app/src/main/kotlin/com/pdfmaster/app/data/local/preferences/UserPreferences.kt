@@ -39,6 +39,7 @@ class UserPreferences @Inject constructor(
         val BIOMETRIC_ENABLED = booleanPreferencesKey("biometric_enabled")
         val IS_PREMIUM = booleanPreferencesKey("is_premium")
         val ANALYTICS_ENABLED = booleanPreferencesKey("analytics_enabled")
+        val ANALYTICS_CONSENT_ASKED = booleanPreferencesKey("analytics_consent_asked")
         val DAILY_COMPRESS_COUNT = intPreferencesKey("daily_compress_count")
         val DAILY_MERGE_COUNT = intPreferencesKey("daily_merge_count")
         val LAST_RESET_DATE = stringPreferencesKey("last_reset_date")
@@ -133,9 +134,15 @@ class UserPreferences @Inject constructor(
     fun getBiometricEnabled(): Flow<Boolean> = getPreference(Keys.BIOMETRIC_ENABLED, false)
     suspend fun setBiometricEnabled(enabled: Boolean) = setPreference(Keys.BIOMETRIC_ENABLED, enabled)
 
-    // Analytics consent (default: enabled). Honored centrally by ConsentAwareAnalytics.
-    fun analyticsEnabled(): Flow<Boolean> = getPreference(Keys.ANALYTICS_ENABLED, true)
+    // Analytics consent — GDPR opt-in: default DISABLED until the user explicitly consents.
+    // Honored centrally by ConsentAwareAnalytics.
+    fun analyticsEnabled(): Flow<Boolean> = getPreference(Keys.ANALYTICS_ENABLED, false)
     suspend fun setAnalyticsEnabled(enabled: Boolean) = setPreference(Keys.ANALYTICS_ENABLED, enabled)
+
+    // Whether the one-time consent prompt has been shown/answered yet.
+    fun analyticsConsentAsked(): Flow<Boolean> = getPreference(Keys.ANALYTICS_CONSENT_ASKED, false)
+    suspend fun setAnalyticsConsentAsked(asked: Boolean) =
+        setPreference(Keys.ANALYTICS_CONSENT_ASKED, asked)
 
     // Premium
     fun isPremium(): Flow<Boolean> = getPreference(Keys.IS_PREMIUM, false)

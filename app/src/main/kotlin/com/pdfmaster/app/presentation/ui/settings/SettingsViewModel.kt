@@ -22,7 +22,8 @@ data class SettingsUiState(
     val dynamicColorEnabled: Boolean = true,
     val keepScreenOn: Boolean = false,
     val isPremium: Boolean = false,
-    val analyticsEnabled: Boolean = true,
+    val analyticsEnabled: Boolean = false, // GDPR opt-in: off until the user consents
+
     val cacheCleared: String? = null,
     val cacheSize: String = ""
 )
