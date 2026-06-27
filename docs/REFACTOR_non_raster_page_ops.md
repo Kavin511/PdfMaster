@@ -28,10 +28,15 @@ per-page markers:
 - extract `[2,0]` → 2 pages in that exact order, text extractable;
 - rotate page 0 by 90° → page count unchanged, `/Rotate == 90`, text extractable.
 
-## Remaining (small)
-- Page-manager **blank-page insertion**: `PageManagerViewModel` still represents a blank page as
-  index `-1` and filters it out at save (so "add blank page" is cosmetic). Needs a small
-  `PdfUtils.insertBlankPage`-style op (PDFBox `PDPage(PDRectangle.A4)`) + a VM tweak to build the
-  page list including blanks. Not a rasterization issue.
-- Optional: drop the now-unused `OpenPDF` dependency once Chunk A/B are merged (see
+## Page manager (done)
+`PdfUtils.buildDocument(sourceUri, pagePlan, rotations, outputFile)` assembles the output in one
+PDFBox pass — reorder, delete, duplicate, **blank-page insertion** (`-1` in the plan → a real
+`PDPage` sized to the source), and per-output-page rotation together. `PageManagerViewModel.save`
+now passes the full plan (including blanks) and clears baked-in rotations afterward (fixes a
+latent double-rotation on a second save). The old extract-then-rotate two-step is gone.
+Covered by `PageOpsTest.buildDocument_handlesBlankReorderAndRotation` (plan `[2, -1, 0]` + rotate
+pos 0): asserts page order, that the inserted page is blank, and the rotation — all green.
+
+## Remaining (optional)
+- Drop the now-unused `OpenPDF` dependency once Chunk A/B are merged (see
   [[openpdf-broken-on-android]]).

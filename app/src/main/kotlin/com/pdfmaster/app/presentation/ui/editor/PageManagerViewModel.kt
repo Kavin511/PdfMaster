@@ -184,51 +184,34 @@ class PageManagerViewModel @Inject constructor() : ViewModel() {
                 val outputDir = FileUtils.getOutputDirectory(context)
                 val outputFile = File(outputDir, FileUtils.generateOutputFileName("Edited"))
 
-                // Get the page indices to keep (non-deleted pages in current order)
-                // currentPageOrder contains original indices, filter out -1 (blank pages) for now
-                val pageIndicesToKeep = currentPageOrder.filter { it >= 0 }
-
-                // Get rotation map (convert to Float for PdfUtils)
+                // Full page plan in display order, including -1 for inserted blank pages.
+                // Rotations are keyed by display position == output position. A single
+                // buildDocument pass handles reorder + delete + duplicate + blank + rotation.
+                val pagePlan = currentPageOrder.toList()
                 val rotations = _uiState.value.pageRotations.mapValues { it.value.toFloat() }
 
-                val success = if (rotations.isNotEmpty()) {
-                    // If there are rotations, we need to handle them
-                    // First extract/reorder pages, then rotate
-                    val tempFile = File(outputDir, "temp_${System.currentTimeMillis()}.pdf")
-
-                    val extractSuccess = PdfUtils.extractPages(context, sourceUri, pageIndicesToKeep, tempFile)
-                    if (extractSuccess) {
-                        val rotateSuccess = PdfUtils.rotatePages(
-                            context,
-                            Uri.fromFile(tempFile),
-                            rotations,
-                            outputFile
-                        )
-                        tempFile.delete()
-                        rotateSuccess
-                    } else {
-                        false
-                    }
-                } else {
-                    // No rotations, just extract/reorder pages
-                    PdfUtils.extractPages(context, sourceUri, pageIndicesToKeep, outputFile)
-                }
+                val success = PdfUtils.buildDocument(context, sourceUri, pagePlan, rotations, outputFile)
 
                 if (success) {
                     val outputUri = Uri.fromFile(outputFile).toString()
+                    val newCount = pagePlan.size
+
+                    // Reset tracking to the freshly-saved document: pages are now a fresh
+                    // 0..n-1 sequence and rotations are baked in, so clear them to avoid
+                    // re-applying on a subsequent save.
+                    originalPageOrder = (0 until newCount).toList()
+                    currentPageOrder = originalPageOrder.toMutableList()
+                    deletedPages.clear()
 
                     _uiState.update {
                         it.copy(
                             isSaving = false,
                             hasChanges = false,
-                            uri = Uri.fromFile(outputFile)
+                            uri = Uri.fromFile(outputFile),
+                            pageCount = newCount,
+                            pageRotations = emptyMap(),
                         )
                     }
-
-                    // Reset tracking state
-                    originalPageOrder = (0 until pageIndicesToKeep.size).toList()
-                    currentPageOrder = originalPageOrder.toMutableList()
-                    deletedPages.clear()
 
                     onComplete?.invoke(outputUri)
                 } else {

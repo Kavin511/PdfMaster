@@ -74,6 +74,30 @@ class PageOpsTest {
     }
 
     @Test
+    fun buildDocument_handlesBlankReorderAndRotation() = runBlocking {
+        val three = asset("three_page.pdf")
+        val out = File(context.cacheDir, "built.pdf").apply { delete() }
+
+        // Plan: page 2 (PAGE_THREE), a blank page, page 0 (PAGE_ONE). Rotate output position 0 by 90.
+        val ok = PdfUtils.buildDocument(
+            context = context,
+            sourceUri = three,
+            pagePlan = listOf(2, -1, 0),
+            rotations = mapOf(0 to 90f),
+            outputFile = out,
+        )
+
+        assertTrue("buildDocument returned false", ok)
+        assertEquals("output page count", 3, pageCount(out))
+        assertTrue("pos 0 = PAGE_THREE", pageText(out, 1).contains("unique-marker-three"))
+        // The inserted blank page has no extractable text.
+        assertTrue("pos 1 should be blank", pageText(out, 2).isBlank())
+        assertTrue("pos 2 = PAGE_ONE", pageText(out, 3).contains("unique-marker-one"))
+        val rot0 = PDDocument.load(out).use { it.getPage(0).rotation }
+        assertEquals("pos 0 rotated", 90, rot0)
+    }
+
+    @Test
     fun rotate_setsRotationAndPreservesText() = runBlocking {
         val three = asset("three_page.pdf")
         val out = File(context.cacheDir, "rotated.pdf").apply { delete() }
