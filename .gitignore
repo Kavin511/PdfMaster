@@ -43,6 +43,8 @@ captures/
 # Keystore files
 *.jks
 *.keystore
+# Release signing credentials (passwords/paths) — never commit; see keystore.properties.example
+keystore.properties
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild

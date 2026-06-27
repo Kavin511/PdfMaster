@@ -1,3 +1,6 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -9,6 +12,15 @@ plugins {
     // when app/google-services.json is present — so the build works without it and activates
     // automatically once you add your Firebase config.
 }
+
+// Release signing credentials are read from a gitignored keystore.properties at the repo root
+// (see keystore.properties.example). When the file is absent — debug builds, CI without
+// secrets — the release signing config is simply not applied, so the project still builds.
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) FileInputStream(keystorePropertiesFile).use { load(it) }
+}
+val hasReleaseKeystore = keystorePropertiesFile.exists()
 
 android {
     namespace = "com.pdfmaster.app"
@@ -28,6 +40,17 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             isMinifyEnabled = false
@@ -41,6 +64,12 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            // Applied only when keystore.properties is present; otherwise the release build is
+            // unsigned (fine for `assembleRelease` locally, but you must add the keystore before
+            // uploading to Play). See keystore.properties.example.
+            if (hasReleaseKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
