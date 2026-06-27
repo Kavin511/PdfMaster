@@ -68,11 +68,6 @@
 }
 -dontwarn com.artifex.mupdf.fitz.**
 
-# --- OpenPDF (reflection) ---
--keep class com.github.librepdf.** { *; }
--keep class com.lowagie.text.** { *; }
--dontwarn com.lowagie.text.**
-
 # --- ML Kit (document scanner / text recognition) ---
 -keep class com.google.mlkit.** { *; }
 -keep class com.google.android.gms.internal.mlkit_** { *; }

@@ -883,7 +883,7 @@ class EditorViewModel @Inject constructor(
         outputFile: File
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            // Collect all edits to apply using OpenPDF
+            // Collect all edits to apply via OpenPdfEditor (PDFBox-backed)
             val textEdits = mutableListOf<OpenPdfEditor.TextEdit>()
             val whiteouts = mutableListOf<OpenPdfEditor.WhiteoutRect>()
             val images = mutableListOf<OpenPdfEditor.ImageOverlay>()
@@ -914,7 +914,7 @@ class EditorViewModel @Inject constructor(
                     }
                 }
 
-                // Convert UI elements to OpenPDF operations
+                // Convert UI elements to OpenPdfEditor operations
                 val pageElements = allPagesElements[pageIndex] ?: emptyList()
                 for (element in pageElements) {
                     when (element) {
@@ -989,7 +989,7 @@ class EditorViewModel @Inject constructor(
                 }
             }
 
-            // Apply all edits using OpenPDF
+            // Apply all edits via OpenPdfEditor (PDFBox-backed)
             OpenPdfEditor.applyEdits(
                 context = context,
                 sourceUri = sourceUri,

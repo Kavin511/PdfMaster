@@ -127,9 +127,10 @@ dependencies {
     implementation(libs.mlkit.text.recognition)
 
     // PDF Libraries
-    implementation(libs.pdfbox.android)
-    implementation(libs.mupdf.fitz)  // MuPDF for accurate text extraction
-    implementation(libs.openpdf)      // OpenPDF for PDF manipulation
+    implementation(libs.pdfbox.android)  // PDFBox-Android: text extraction + stamping/page ops
+    implementation(libs.mupdf.fitz)       // MuPDF for accurate text extraction
+    // NOTE: OpenPDF (com.lowagie) was removed — it references java.awt.* which doesn't exist on
+    // Android, so it crashed at runtime. All PDF stamping/page ops now use PDFBox-Android.
 
     // ComPDFKit SDK - Professional PDF editing
     implementation("com.compdf:compdfkit:2.5.3")
