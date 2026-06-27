@@ -54,8 +54,30 @@ Coordinate math cannot be fully validated without a device. Before merging this 
 - check output file size is reasonable.
 
 ## Status
-- [ ] PdfCoordinateMapper
-- [ ] Signature → applyEdits
-- [ ] Annotate → applyEdits (+ non-freehand tools)
-- [ ] Form → applyEdits (+ font scaling)
+- [x] PdfCoordinateMapper
+- [~] Signature → applyEdits — code done & compiles, BUT emulator verify failed (see below)
+- [ ] Annotate → applyEdits (+ non-freehand tools) — BLOCKED on the finding below
+- [ ] Form → applyEdits (+ font scaling) — BLOCKED on the finding below
 - [ ] Chunk B (separate branch)
+
+## ⚠️ Verification finding (2026-06-26, Medium_Phone arm64 emulator)
+End-to-end emulator test of the signature flow (import → draw → place → save, premium forced):
+- UI flow works; the new gate fires correctly for free users.
+- BUT the saved output `Signed_*.pdf` is **0 bytes** — `OpenPdfEditor.applyEdits` produces an
+  empty file. Confirmed across two runs.
+- Source PDF ruled out: it is PDF 1.3 with a classic xref table (OpenPDF-compatible), so this
+  is a real regression in the ImageOverlay save path, not a test artifact.
+- **Most likely cause:** OpenPDF `Image.getInstance()` on the PNG-with-alpha signature bitmap
+  (transparent ARGB_8888) throwing inside `applyImageOverlay`, which leaves the just-opened
+  `FileOutputStream(outputFile)` empty; the `finally` double-close then can't finalize it.
+
+### Required fix before proceeding
+1. Capture the exact exception (logcat `System.err` during save) to confirm the cause.
+2. In `OpenPdfEditor.applyImageOverlay`, flatten/encode the signature bitmap in a form OpenPDF
+   accepts (e.g. draw onto an opaque ARGB→RGB surface, or use `Image.getInstance(bitmap, null)`
+   appropriately), and ensure `applyEdits` never leaves a 0-byte file (write to a temp file and
+   only move into place on a fully-successful close).
+3. Re-verify signature on-device, THEN replicate the now-proven pattern to annotate + form.
+
+This is exactly why verification preceded propagation — the bug would otherwise have shipped to
+three save paths.
