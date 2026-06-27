@@ -2,84 +2,82 @@ package com.pdfmaster.app.util
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.Color as AndroidColor
 import android.net.Uri
-import com.lowagie.text.Document
-import com.lowagie.text.Element
-import com.lowagie.text.Font
-import com.lowagie.text.Image
-import com.lowagie.text.Rectangle
-import com.lowagie.text.pdf.BaseFont
-import com.lowagie.text.pdf.PdfContentByte
-import com.lowagie.text.pdf.PdfReader
-import com.lowagie.text.pdf.PdfStamper
-import com.lowagie.text.pdf.PdfWriter
+import android.util.Log
+import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
+import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDPageContentStream
+import com.tom_roush.pdfbox.pdmodel.font.PDType1Font
+import com.tom_roush.pdfbox.pdmodel.graphics.image.LosslessFactory
+import com.tom_roush.pdfbox.pdmodel.graphics.state.PDExtendedGraphicsState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.FileOutputStream
 
 /**
- * OpenPDF-based PDF editor for real PDF manipulation
- * - Add/replace text at precise positions
- * - Whiteout (redact) existing content
- * - Add images and drawings
+ * PDF overlay editor built on PDFBox-Android (com.tom_roush.pdfbox).
+ *
+ * IMPORTANT: this was previously implemented on OpenPDF (com.lowagie), which references
+ * `java.awt.*` — classes that do not exist on Android — so every operation threw
+ * `NoClassDefFoundError: java.awt.Color` at `PdfStamper.<init>` and wrote a 0-byte file.
+ * PDFBox-Android is fully Android-native. All edits are stamped onto the ORIGINAL pages via
+ * append-mode content streams, so existing vector text / search / accessibility are preserved.
+ *
+ * Coordinate convention for the data classes below: top-left origin, PDF points. PDFBox uses a
+ * bottom-left origin, so we flip Y here (pdfY = pageHeight - y - height).
  */
 object OpenPdfEditor {
 
-    /**
-     * Text edit operation
-     */
+    private const val TAG = "OpenPdfEditor"
+
     data class TextEdit(
-        val pageIndex: Int,  // 0-based
+        val pageIndex: Int,
         val x: Float,
         val y: Float,
         val text: String,
         val fontSize: Float = 12f,
-        val fontColor: Int = android.graphics.Color.BLACK,
+        val fontColor: Int = AndroidColor.BLACK,
         val isBold: Boolean = false,
-        val isItalic: Boolean = false
+        val isItalic: Boolean = false,
     )
 
-    /**
-     * Whiteout operation (cover existing content)
-     */
     data class WhiteoutRect(
-        val pageIndex: Int,  // 0-based
+        val pageIndex: Int,
         val x: Float,
         val y: Float,
         val width: Float,
-        val height: Float
+        val height: Float,
     )
 
-    /**
-     * Image/drawing operation
-     */
     data class ImageOverlay(
-        val pageIndex: Int,  // 0-based
+        val pageIndex: Int,
         val x: Float,
         val y: Float,
         val width: Float,
         val height: Float,
-        val bitmap: Bitmap
+        val bitmap: Bitmap,
     )
 
-    /**
-     * Highlight operation — a semi-transparent colored rectangle drawn over content.
-     */
     data class HighlightRect(
-        val pageIndex: Int,  // 0-based
+        val pageIndex: Int,
         val x: Float,
         val y: Float,
         val width: Float,
         val height: Float,
-        val color: Int = android.graphics.Color.YELLOW,
-        val opacity: Float = 0.35f
+        val color: Int = AndroidColor.YELLOW,
+        val opacity: Float = 0.35f,
     )
 
+    private fun ensureInit(context: Context) {
+        // Idempotent; required before PDFBox font/stream operations on Android.
+        runCatching { PDFBoxResourceLoader.init(context.applicationContext) }
+    }
+
     /**
-     * Apply edits to a PDF and save to output file
-     * Uses OpenPDF's PdfStamper for precise content placement
+     * Apply overlay edits onto [sourceUri] and write to [outputFile]. Writes to a temp file and
+     * only moves it into place after a fully successful save, so a failure can never leave a
+     * 0-byte or partially-written output. Returns false on any failure.
      */
     suspend fun applyEdits(
         context: Context,
@@ -88,76 +86,65 @@ object OpenPdfEditor {
         textEdits: List<TextEdit> = emptyList(),
         whiteouts: List<WhiteoutRect> = emptyList(),
         images: List<ImageOverlay> = emptyList(),
-        highlights: List<HighlightRect> = emptyList()
+        highlights: List<HighlightRect> = emptyList(),
     ): Boolean = withContext(Dispatchers.IO) {
-        var reader: PdfReader? = null
-        var stamper: PdfStamper? = null
-
+        ensureInit(context)
+        val tmp = File(outputFile.parentFile, "${outputFile.name}.tmp")
+        var document: PDDocument? = null
         try {
-            // Read source PDF
-            val inputStream = context.contentResolver.openInputStream(sourceUri)
+            val bytes = context.contentResolver.openInputStream(sourceUri)?.use { it.readBytes() }
                 ?: return@withContext false
-            val pdfBytes = inputStream.readBytes()
-            inputStream.close()
+            document = PDDocument.load(bytes)
+            val pageCount = document.numberOfPages
 
-            reader = PdfReader(pdfBytes)
-            stamper = PdfStamper(reader, FileOutputStream(outputFile))
+            for (pageIndex in 0 until pageCount) {
+                val hasWork = whiteouts.any { it.pageIndex == pageIndex } ||
+                    highlights.any { it.pageIndex == pageIndex } ||
+                    textEdits.any { it.pageIndex == pageIndex } ||
+                    images.any { it.pageIndex == pageIndex }
+                if (!hasWork) continue
 
-            val totalPages = reader.numberOfPages
-
-            // Process each page
-            for (pageNum in 1..totalPages) {
-                val pageIndex = pageNum - 1
-                val pageSize = reader.getPageSize(pageNum)
-                val pageHeight = pageSize.height
-
-                // Get content layer (over = on top of existing content)
-                val overContent = stamper.getOverContent(pageNum)
-                // Get under content (under = below existing content, for whiteout)
-                val underContent = stamper.getUnderContent(pageNum)
-
-                // Apply whiteouts first (draw white rectangles over existing content)
-                whiteouts.filter { it.pageIndex == pageIndex }.forEach { whiteout ->
-                    applyWhiteout(overContent, whiteout, pageHeight)
-                }
-
-                // Apply highlights (semi-transparent colored rectangles over content)
-                highlights.filter { it.pageIndex == pageIndex }.forEach { highlight ->
-                    applyHighlight(overContent, highlight, pageHeight)
-                }
-
-                // Apply text edits
-                textEdits.filter { it.pageIndex == pageIndex }.forEach { textEdit ->
-                    applyTextEdit(overContent, textEdit, pageHeight)
-                }
-
-                // Apply image overlays
-                images.filter { it.pageIndex == pageIndex }.forEach { imageOverlay ->
-                    applyImageOverlay(overContent, imageOverlay, pageHeight)
+                val page = document.getPage(pageIndex)
+                val pageHeight = page.mediaBox.height
+                PDPageContentStream(
+                    document, page, PDPageContentStream.AppendMode.APPEND, true, true,
+                ).use { cs ->
+                    whiteouts.filter { it.pageIndex == pageIndex }.forEach { drawWhiteout(cs, it, pageHeight) }
+                    highlights.filter { it.pageIndex == pageIndex }.forEach { drawHighlight(cs, it, pageHeight) }
+                    images.filter { it.pageIndex == pageIndex }.forEach { drawImage(document, cs, it, pageHeight) }
+                    textEdits.filter { it.pageIndex == pageIndex }.forEach { drawText(cs, it, pageHeight) }
                 }
             }
 
-            stamper.close()
-            reader.close()
-            true
+            tmp.parentFile?.mkdirs()
+            document.save(tmp)
+            document.close()
+            document = null
 
+            if (tmp.length() == 0L) {
+                tmp.delete()
+                Log.e(TAG, "applyEdits produced an empty file")
+                return@withContext false
+            }
+            val moved = tmp.renameTo(outputFile) || runCatching {
+                tmp.copyTo(outputFile, overwrite = true); tmp.delete()
+            }.isSuccess
+            if (!moved) {
+                tmp.delete()
+                return@withContext false
+            }
+            true
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "applyEdits failed", e)
             false
         } finally {
-            try {
-                stamper?.close()
-                reader?.close()
-            } catch (e: Exception) {
-                // Ignore cleanup errors
-            }
+            runCatching { document?.close() }
+            if (tmp.exists()) tmp.delete()
         }
     }
 
     /**
-     * Stamps a diagonal watermark across every page (free-tier output).
-     * Premium removes this by simply not calling it. Returns false on failure so the
-     * caller can fall back to the un-watermarked source.
+     * Stamps a diagonal watermark across every page (free-tier output). Returns false on failure.
      */
     suspend fun addWatermark(
         context: Context,
@@ -165,200 +152,114 @@ object OpenPdfEditor {
         outputFile: File,
         text: String = "Made with PdfMaster",
     ): Boolean = withContext(Dispatchers.IO) {
-        var reader: PdfReader? = null
-        var stamper: PdfStamper? = null
+        ensureInit(context)
+        val tmp = File(outputFile.parentFile, "${outputFile.name}.tmp")
+        var document: PDDocument? = null
         try {
-            val pdfBytes = context.contentResolver.openInputStream(sourceUri)?.use { it.readBytes() }
+            val bytes = context.contentResolver.openInputStream(sourceUri)?.use { it.readBytes() }
                 ?: return@withContext false
+            document = PDDocument.load(bytes)
 
-            reader = PdfReader(pdfBytes)
-            stamper = PdfStamper(reader, FileOutputStream(outputFile))
-
-            val font = BaseFont.createFont(BaseFont.HELVETICA_BOLD, BaseFont.CP1252, BaseFont.NOT_EMBEDDED)
-            for (pageNum in 1..reader.numberOfPages) {
-                val pageSize = reader.getPageSize(pageNum)
-                val over = stamper.getOverContent(pageNum)
-                over.saveState()
-                // Light grey, semi-transparent diagonal stamp through the page centre.
-                val gs = com.lowagie.text.pdf.PdfGState().apply { setFillOpacity(0.18f) }
-                over.setGState(gs)
-                over.beginText()
-                over.setFontAndSize(font, 42f)
-                over.setRGBColorFill(120, 120, 120)
-                over.showTextAligned(
-                    Element.ALIGN_CENTER,
-                    text,
-                    pageSize.width / 2f,
-                    pageSize.height / 2f,
-                    45f,
-                )
-                over.endText()
-                over.restoreState()
+            for (pageIndex in 0 until document.numberOfPages) {
+                val page = document.getPage(pageIndex)
+                val w = page.mediaBox.width
+                val h = page.mediaBox.height
+                PDPageContentStream(
+                    document, page, PDPageContentStream.AppendMode.APPEND, true, true,
+                ).use { cs ->
+                    val gs = PDExtendedGraphicsState().apply { nonStrokingAlphaConstant = 0.18f }
+                    cs.setGraphicsStateParameters(gs)
+                    cs.setNonStrokingColor(120f / 255f, 120f / 255f, 120f / 255f)
+                    cs.beginText()
+                    cs.setFont(PDType1Font.HELVETICA_BOLD, 42f)
+                    // Rotate 45° about the page centre.
+                    val rad = Math.toRadians(45.0)
+                    val cos = Math.cos(rad).toFloat()
+                    val sin = Math.sin(rad).toFloat()
+                    cs.setTextMatrix(
+                        com.tom_roush.pdfbox.util.Matrix(cos, sin, -sin, cos, w / 2f - 150f, h / 2f),
+                    )
+                    cs.showText(text)
+                    cs.endText()
+                }
             }
 
-            stamper.close()
-            reader.close()
+            tmp.parentFile?.mkdirs()
+            document.save(tmp)
+            document.close()
+            document = null
+
+            if (tmp.length() == 0L) {
+                tmp.delete(); return@withContext false
+            }
+            val moved = tmp.renameTo(outputFile) || runCatching {
+                tmp.copyTo(outputFile, overwrite = true); tmp.delete()
+            }.isSuccess
+            if (!moved) { tmp.delete(); return@withContext false }
             true
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "addWatermark failed", e)
             false
         } finally {
-            try {
-                stamper?.close()
-                reader?.close()
-            } catch (_: Exception) {
-            }
+            runCatching { document?.close() }
+            if (tmp.exists()) tmp.delete()
         }
     }
 
-    /**
-     * Whiteout with background color for seamless blending
-     */
-    data class WhiteoutRectWithColor(
-        val pageIndex: Int,
-        val x: Float,
-        val y: Float,
-        val width: Float,
-        val height: Float,
-        val backgroundColor: Int = android.graphics.Color.WHITE  // Sampled background color
-    )
-
-    /**
-     * Apply whiteout with matched background color for seamless look
-     */
-    private fun applyWhiteout(content: PdfContentByte, whiteout: WhiteoutRect, pageHeight: Float) {
-        content.saveState()
-
-        // Use white as default - ideally this should be sampled from the PDF
-        content.setRGBColorFill(255, 255, 255)
-        content.setRGBColorStroke(255, 255, 255)
-
-        // PDF coordinates are from bottom-left, need to flip Y
-        val pdfY = pageHeight - whiteout.y - whiteout.height
-
-        // Draw filled rectangle
-        content.rectangle(whiteout.x, pdfY, whiteout.width, whiteout.height)
-        content.fill()
-
-        content.restoreState()
+    private fun drawWhiteout(cs: PDPageContentStream, w: WhiteoutRect, pageHeight: Float) {
+        cs.setNonStrokingColor(1f, 1f, 1f)
+        cs.addRect(w.x, pageHeight - w.y - w.height, w.width, w.height)
+        cs.fill()
     }
 
-    /**
-     * Apply a semi-transparent highlight rectangle over existing content.
-     */
-    private fun applyHighlight(content: PdfContentByte, highlight: HighlightRect, pageHeight: Float) {
-        content.saveState()
-
-        val gs = com.lowagie.text.pdf.PdfGState().apply {
-            setFillOpacity(highlight.opacity.coerceIn(0.05f, 1f))
+    private fun drawHighlight(cs: PDPageContentStream, hl: HighlightRect, pageHeight: Float) {
+        cs.saveGraphicsState()
+        val gs = PDExtendedGraphicsState().apply {
+            nonStrokingAlphaConstant = hl.opacity.coerceIn(0.05f, 1f)
         }
-        content.setGState(gs)
-
-        val r = android.graphics.Color.red(highlight.color)
-        val g = android.graphics.Color.green(highlight.color)
-        val b = android.graphics.Color.blue(highlight.color)
-        content.setRGBColorFill(r, g, b)
-
-        // PDF coordinates are from bottom-left, need to flip Y
-        val pdfY = pageHeight - highlight.y - highlight.height
-        content.rectangle(highlight.x, pdfY, highlight.width, highlight.height)
-        content.fill()
-
-        content.restoreState()
+        cs.setGraphicsStateParameters(gs)
+        cs.setNonStrokingColor(
+            AndroidColor.red(hl.color) / 255f,
+            AndroidColor.green(hl.color) / 255f,
+            AndroidColor.blue(hl.color) / 255f,
+        )
+        cs.addRect(hl.x, pageHeight - hl.y - hl.height, hl.width, hl.height)
+        cs.fill()
+        cs.restoreGraphicsState()
     }
 
-    /**
-     * Apply whiteout with specific background color
-     */
-    private fun applyWhiteoutWithColor(content: PdfContentByte, x: Float, y: Float, width: Float, height: Float, pageHeight: Float, bgColor: Int) {
-        content.saveState()
-
-        val r = android.graphics.Color.red(bgColor)
-        val g = android.graphics.Color.green(bgColor)
-        val b = android.graphics.Color.blue(bgColor)
-        content.setRGBColorFill(r, g, b)
-
-        // PDF coordinates are from bottom-left, need to flip Y
-        val pdfY = pageHeight - y - height
-
-        content.rectangle(x, pdfY, width, height)
-        content.fill()
-
-        content.restoreState()
-    }
-
-    /**
-     * Apply text at specified position
-     */
-    private fun applyTextEdit(content: PdfContentByte, textEdit: TextEdit, pageHeight: Float) {
-        content.saveState()
-
-        try {
-            // Create font based on style
-            val fontName = when {
-                textEdit.isBold && textEdit.isItalic -> BaseFont.HELVETICA_BOLDOBLIQUE
-                textEdit.isBold -> BaseFont.HELVETICA_BOLD
-                textEdit.isItalic -> BaseFont.HELVETICA_OBLIQUE
-                else -> BaseFont.HELVETICA
-            }
-
-            val baseFont = BaseFont.createFont(fontName, BaseFont.CP1252, BaseFont.NOT_EMBEDDED)
-
-            // Set text properties
-            content.beginText()
-            content.setFontAndSize(baseFont, textEdit.fontSize)
-
-            // Convert Android color to RGB
-            val r = android.graphics.Color.red(textEdit.fontColor)
-            val g = android.graphics.Color.green(textEdit.fontColor)
-            val b = android.graphics.Color.blue(textEdit.fontColor)
-            content.setRGBColorFill(r, g, b)
-
-            // PDF coordinates are from bottom-left, need to flip Y
-            // Also adjust for baseline (text is drawn from baseline, not top)
-            val pdfY = pageHeight - textEdit.y - textEdit.fontSize
-
-            content.setTextMatrix(textEdit.x, pdfY)
-            content.showText(textEdit.text)
-            content.endText()
-
-        } catch (e: Exception) {
-            e.printStackTrace()
+    private fun drawText(cs: PDPageContentStream, t: TextEdit, pageHeight: Float) {
+        val font = when {
+            t.isBold && t.isItalic -> PDType1Font.HELVETICA_BOLD_OBLIQUE
+            t.isBold -> PDType1Font.HELVETICA_BOLD
+            t.isItalic -> PDType1Font.HELVETICA_OBLIQUE
+            else -> PDType1Font.HELVETICA
         }
-
-        content.restoreState()
+        cs.beginText()
+        cs.setFont(font, t.fontSize)
+        cs.setNonStrokingColor(
+            AndroidColor.red(t.fontColor) / 255f,
+            AndroidColor.green(t.fontColor) / 255f,
+            AndroidColor.blue(t.fontColor) / 255f,
+        )
+        cs.newLineAtOffset(t.x, pageHeight - t.y - t.fontSize)
+        // Standard-14 fonts only encode WinAnsi; strip anything they can't render.
+        cs.showText(t.text.filter { it.code in 32..255 })
+        cs.endText()
     }
 
-    /**
-     * Apply image overlay at specified position
-     */
-    private fun applyImageOverlay(content: PdfContentByte, imageOverlay: ImageOverlay, pageHeight: Float) {
-        try {
-            // Convert Bitmap to bytes
-            val stream = ByteArrayOutputStream()
-            imageOverlay.bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-            val imageBytes = stream.toByteArray()
-
-            val image = Image.getInstance(imageBytes)
-
-            // Scale image to specified dimensions
-            image.scaleAbsolute(imageOverlay.width, imageOverlay.height)
-
-            // PDF coordinates are from bottom-left
-            val pdfY = pageHeight - imageOverlay.y - imageOverlay.height
-            image.setAbsolutePosition(imageOverlay.x, pdfY)
-
-            content.addImage(image)
-
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+    private fun drawImage(
+        doc: PDDocument,
+        cs: PDPageContentStream,
+        img: ImageOverlay,
+        pageHeight: Float,
+    ) {
+        // LosslessFactory handles ARGB_8888 with alpha (transparent signature) natively.
+        val pdImage = LosslessFactory.createFromImage(doc, img.bitmap)
+        cs.drawImage(pdImage, img.x, pageHeight - img.y - img.height, img.width, img.height)
     }
 
-    /**
-     * Replace text at a specific location
-     * This whiteouts the area first, then adds new text
-     */
+    /** Convenience: whiteout an area then write replacement text. */
     suspend fun replaceText(
         context: Context,
         sourceUri: Uri,
@@ -370,39 +271,15 @@ object OpenPdfEditor {
         originalHeight: Float,
         newText: String,
         fontSize: Float = 12f,
-        fontColor: Int = android.graphics.Color.BLACK
-    ): Boolean {
-        // Create whiteout for original text area
-        val whiteout = WhiteoutRect(
-            pageIndex = pageIndex,
-            x = originalX,
-            y = originalY,
-            width = originalWidth,
-            height = originalHeight
-        )
+        fontColor: Int = AndroidColor.BLACK,
+    ): Boolean = applyEdits(
+        context = context,
+        sourceUri = sourceUri,
+        outputFile = outputFile,
+        whiteouts = listOf(WhiteoutRect(pageIndex, originalX, originalY, originalWidth, originalHeight)),
+        textEdits = listOf(TextEdit(pageIndex, originalX, originalY, newText, fontSize, fontColor)),
+    )
 
-        // Create text edit for new text
-        val textEdit = TextEdit(
-            pageIndex = pageIndex,
-            x = originalX,
-            y = originalY,
-            text = newText,
-            fontSize = fontSize,
-            fontColor = fontColor
-        )
-
-        return applyEdits(
-            context = context,
-            sourceUri = sourceUri,
-            outputFile = outputFile,
-            textEdits = listOf(textEdit),
-            whiteouts = listOf(whiteout)
-        )
-    }
-
-    /**
-     * Add text annotation to PDF
-     */
     suspend fun addText(
         context: Context,
         sourceUri: Uri,
@@ -412,76 +289,42 @@ object OpenPdfEditor {
         y: Float,
         text: String,
         fontSize: Float = 12f,
-        fontColor: Int = android.graphics.Color.BLACK
-    ): Boolean {
-        val textEdit = TextEdit(
-            pageIndex = pageIndex,
-            x = x,
-            y = y,
-            text = text,
-            fontSize = fontSize,
-            fontColor = fontColor
-        )
+        fontColor: Int = AndroidColor.BLACK,
+    ): Boolean = applyEdits(
+        context = context,
+        sourceUri = sourceUri,
+        outputFile = outputFile,
+        textEdits = listOf(TextEdit(pageIndex, x, y, text, fontSize, fontColor)),
+    )
 
-        return applyEdits(
-            context = context,
-            sourceUri = sourceUri,
-            outputFile = outputFile,
-            textEdits = listOf(textEdit)
-        )
-    }
-
-    /**
-     * Get PDF page dimensions (in PDF points, 72 points = 1 inch)
-     */
+    /** Page dimensions in PDF points (72pt = 1in), or null on failure. */
     suspend fun getPageDimensions(
         context: Context,
         uri: Uri,
-        pageIndex: Int
+        pageIndex: Int,
     ): Pair<Float, Float>? = withContext(Dispatchers.IO) {
+        ensureInit(context)
         try {
-            val inputStream = context.contentResolver.openInputStream(uri)
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 ?: return@withContext null
-            val pdfBytes = inputStream.readBytes()
-            inputStream.close()
-
-            val reader = PdfReader(pdfBytes)
-            if (pageIndex >= reader.numberOfPages) {
-                reader.close()
-                return@withContext null
+            PDDocument.load(bytes).use { doc ->
+                if (pageIndex !in 0 until doc.numberOfPages) return@withContext null
+                val box = doc.getPage(pageIndex).mediaBox
+                Pair(box.width, box.height)
             }
-
-            val pageSize = reader.getPageSize(pageIndex + 1)  // 1-based
-            val result = Pair(pageSize.width, pageSize.height)
-            reader.close()
-            result
-
         } catch (e: Exception) {
-            e.printStackTrace()
+            Log.e(TAG, "getPageDimensions failed", e)
             null
         }
     }
 
-    /**
-     * Get total page count
-     */
-    suspend fun getPageCount(
-        context: Context,
-        uri: Uri
-    ): Int = withContext(Dispatchers.IO) {
+    suspend fun getPageCount(context: Context, uri: Uri): Int = withContext(Dispatchers.IO) {
+        ensureInit(context)
         try {
-            val inputStream = context.contentResolver.openInputStream(uri)
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                 ?: return@withContext 0
-            val pdfBytes = inputStream.readBytes()
-            inputStream.close()
-
-            val reader = PdfReader(pdfBytes)
-            val count = reader.numberOfPages
-            reader.close()
-            count
-
+            PDDocument.load(bytes).use { it.numberOfPages }
         } catch (e: Exception) {
-            e.printStackTrace()
             0
         }
     }

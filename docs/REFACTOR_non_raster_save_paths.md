@@ -55,9 +55,11 @@ Coordinate math cannot be fully validated without a device. Before merging this 
 
 ## Status
 - [x] PdfCoordinateMapper
-- [~] Signature → applyEdits — code done & compiles, BUT emulator verify failed (see below)
-- [ ] Annotate → applyEdits (+ non-freehand tools) — BLOCKED on the finding below
-- [ ] Form → applyEdits (+ font scaling) — BLOCKED on the finding below
+- [x] **OpenPdfEditor rewritten on PDFBox-Android** (root-cause fix, see below) + instrumented test
+- [x] Signature → applyEdits — verified: output is a valid non-empty PDF with the original
+      **text layer preserved** (asserted by `OpenPdfEditorTest`)
+- [ ] Annotate → applyEdits (+ non-freehand tools) — now unblocked, next
+- [ ] Form → applyEdits (+ font scaling) — now unblocked, next
 - [ ] Chunk B (separate branch)
 
 ## ⚠️ Verification finding (2026-06-26, Medium_Phone arm64 emulator)
@@ -71,13 +73,27 @@ End-to-end emulator test of the signature flow (import → draw → place → sa
   (transparent ARGB_8888) throwing inside `applyImageOverlay`, which leaves the just-opened
   `FileOutputStream(outputFile)` empty; the `finally` double-close then can't finalize it.
 
-### Required fix before proceeding
-1. Capture the exact exception (logcat `System.err` during save) to confirm the cause.
-2. In `OpenPdfEditor.applyImageOverlay`, flatten/encode the signature bitmap in a form OpenPDF
-   accepts (e.g. draw onto an opaque ARGB→RGB surface, or use `Image.getInstance(bitmap, null)`
-   appropriately), and ensure `applyEdits` never leaves a 0-byte file (write to a temp file and
-   only move into place on a fully-successful close).
-3. Re-verify signature on-device, THEN replicate the now-proven pattern to annotate + form.
+### ROOT CAUSE (confirmed via instrumented test)
+The real cause was NOT the PNG alpha. An instrumented test calling `applyEdits` directly threw:
+`java.lang.NoClassDefFoundError: java.awt.Color at com.lowagie.text.pdf.PdfStamper.<init>`.
+**OpenPDF (`com.lowagie`/librepdf) references `java.awt.*`, which does not exist on Android**, so
+EVERY OpenPdfEditor operation (text edits, image overlays, AND `addWatermark`) threw at
+`PdfStamper` construction and left a 0-byte file. OpenPdfEditor had never worked on a device.
 
-This is exactly why verification preceded propagation — the bug would otherwise have shipped to
-three save paths.
+### FIX (done)
+Rewrote `OpenPdfEditor` entirely on **PDFBox-Android** (`com.tom_roush.pdfbox`, already a
+dependency — fully Android-native, no AWT):
+- edits stamped via append-mode `PDPageContentStream` → original vector text preserved.
+- transparent signature handled natively by `LosslessFactory.createFromImage(doc, bitmap)`.
+- `applyEdits`/`addWatermark` now write to a temp file and only move into place on a fully
+  successful save, so a failure can never leave a 0-byte/partial output.
+- `OpenPdfEditorTest` (instrumented) asserts non-empty valid PDF **and** that the source text
+  survives — both green.
+
+### ⚠️ Cross-cutting impact (applies to `main`, not just this branch)
+Because OpenPdfEditor was broken app-wide on Android, on `main`:
+- the free-tier scan **watermark never actually applied** (addWatermark always returned false);
+- the legacy editor's text-edit **save** was also non-functional on device.
+The `main`-branch change that *fails* a scan when watermarking fails therefore currently breaks
+free scanning on real devices. **This PDFBox fix should be brought to `main`** (cherry-pick
+`OpenPdfEditor.kt`) so watermarking actually works and that change becomes correct.
