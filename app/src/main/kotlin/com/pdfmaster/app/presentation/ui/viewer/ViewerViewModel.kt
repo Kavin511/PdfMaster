@@ -117,12 +117,17 @@ class ViewerViewModel @Inject constructor(
                 val pageCount = PdfUtils.getPageCount(context, uri)
 
                 if (pageCount == 0) {
-                    _uiState.update {
-                        it.copy(
-                            isLoading = false,
-                            error = "Could not open PDF file. The file may be corrupted or invalid."
-                        )
+                    // Distinguish a genuinely empty (0-byte) file from a corrupt/unsupported one.
+                    // statSize is reliable for both file:// and content:// uris (-1 = unknown).
+                    val sizeBytes = runCatching {
+                        context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
+                    }.getOrDefault(-1L)
+                    val message = if (sizeBytes == 0L) {
+                        "This PDF is empty (0 bytes). It may not have finished saving or downloading."
+                    } else {
+                        "Could not open this PDF. The file may be corrupted or in an unsupported format."
                     }
+                    _uiState.update { it.copy(isLoading = false, error = message) }
                     return@launch
                 }
 
