@@ -104,18 +104,6 @@
             android:name="com.google.mlkit.vision.DEPENDENCIES"
             android:value="ocr" />
 
-        <!-- ComPDFKit License Key (Get from https://www.compdf.com/) -->
-        <meta-data
-            android:name="compdfkit_key"
-            android:value="YOUR_COMPDFKIT_LICENSE_KEY" />
-
-        <!-- ComPDFKit Editor Activity -->
-        <activity
-            android:name=".presentation.ui.editor.ComPdfKitEditorActivity"
-            android:theme="@style/Theme.PdfMaster.ComPdfKit"
-            android:exported="false"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
-
     </application>
 
 </manifest>

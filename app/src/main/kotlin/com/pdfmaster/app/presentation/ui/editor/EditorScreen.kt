@@ -53,10 +53,6 @@ import com.pdfmaster.app.presentation.theme.*
 import com.pdfmaster.app.util.ExtractedTextBlock
 import kotlin.math.roundToInt
 
-// Flag to control whether to use ComPDFKit or the custom editor
-// TODO: Set to true once ComPDFKit imports are fixed
-private const val USE_COMPDFKIT = false
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditorScreen(
@@ -68,31 +64,6 @@ fun EditorScreen(
 ) {
     val context = LocalContext.current
 
-    // Launch ComPDFKit editor if enabled
-    if (USE_COMPDFKIT) {
-        var hasLaunched by remember { mutableStateOf(false) }
-
-        LaunchedEffect(uri) {
-            if (!hasLaunched) {
-                hasLaunched = true
-                val intent = ComPdfKitEditorActivity.createIntent(context, Uri.parse(uri))
-                context.startActivity(intent)
-                // Navigate back after launching the activity
-                onNavigateBack()
-            }
-        }
-
-        // Show a loading state while launching
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            CircularProgressIndicator()
-        }
-        return
-    }
-
-    // ============ Legacy Custom Editor (kept as fallback) ============
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     com.pdfmaster.app.presentation.ui.premium.PremiumGateDialog(

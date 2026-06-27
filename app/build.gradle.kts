@@ -106,7 +106,7 @@ dependencies {
     // Core Android
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation("androidx.appcompat:appcompat:1.7.0")  // Required for ComPDFKit
+    implementation("androidx.appcompat:appcompat:1.7.0")  // kept for AppCompat-based library UI
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.activity.compose)
@@ -161,10 +161,8 @@ dependencies {
     // NOTE: OpenPDF (com.lowagie) was removed — it references java.awt.* which doesn't exist on
     // Android, so it crashed at runtime. All PDF stamping/page ops now use PDFBox-Android.
 
-    // ComPDFKit SDK - Professional PDF editing
-    implementation("com.compdf:compdfkit:2.5.3")
-    implementation("com.compdf:compdfkit-ui:2.5.3")
-    implementation("com.compdf:compdfkit-tools:2.5.3")
+    // NOTE: ComPDFKit was removed — it was gated off (USE_COMPDFKIT=false), never invoked, and
+    // added ~30MB + a paid license requirement. The app uses its own PDFBox-based editor.
 
     // Accompanist
     implementation(libs.accompanist.permissions)

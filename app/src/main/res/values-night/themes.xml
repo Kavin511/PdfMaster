@@ -9,15 +9,4 @@
         <item name="android:enforceStatusBarContrast">false</item>
         <item name="android:windowBackground">@color/background_dark</item>
     </style>
-
-    <!-- AppCompat theme for ComPDFKit editor (Dark) -->
-    <style name="Theme.PdfMaster.ComPdfKit" parent="Theme.AppCompat.NoActionBar">
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
-        <item name="android:windowLightStatusBar">false</item>
-        <item name="android:windowBackground">@color/background_dark</item>
-        <item name="colorPrimary">@color/primary</item>
-        <item name="colorPrimaryDark">@color/primary_dark</item>
-        <item name="colorAccent">@color/accent</item>
-    </style>
 </resources>

@@ -49,12 +49,6 @@
 # --- Play Billing: uses Parcelable/reflection internally ---
 -keep class com.android.billingclient.api.** { *; }
 
-# --- ComPDFKit (loaded reflectively via Class.forName in PdfMasterApp) ---
--keep class com.compdf.** { *; }
--keep class com.compdfkit.** { *; }
--dontwarn com.compdf.**
--dontwarn com.compdfkit.**
-
 # --- PDFBox-Android + BouncyCastle (reflection for fonts/encoding + crypto) ---
 -keep class com.tom_roush.pdfbox.** { *; }
 -keep class org.bouncycastle.** { *; }
