@@ -6,7 +6,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
-import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -19,6 +18,7 @@ import com.pdfmaster.app.billing.PremiumFeature
 import com.pdfmaster.app.billing.PremiumPrompt
 import com.pdfmaster.app.domain.model.FormField
 import com.pdfmaster.app.util.FileUtils
+import com.pdfmaster.app.util.OpenPdfEditor
 import com.pdfmaster.app.util.PdfUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -29,9 +29,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 import java.util.UUID
 import javax.inject.Inject
+import kotlin.math.roundToInt
 
 data class FormFillingUiState(
     val uri: Uri? = null,
@@ -290,41 +290,37 @@ class FormFillingViewModel @Inject constructor(
     private suspend fun renderFormFieldsToPdf(context: Context, sourceUri: Uri, outputFile: File): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                val pageCount = _uiState.value.pageCount
-                val document = PdfDocument()
-                val width = context.resources.displayMetrics.widthPixels
                 val formFields = _uiState.value.formFields
+                if (formFields.isEmpty()) return@withContext false
+                val width = context.resources.displayMetrics.widthPixels
 
-                for (i in 0 until pageCount) {
-                    val pageBitmap = PdfUtils.renderPage(context, sourceUri, i, width) ?: continue
-
-                    val pageInfo = PdfDocument.PageInfo.Builder(
-                        pageBitmap.width,
-                        pageBitmap.height,
-                        i + 1
-                    ).create()
-
-                    val page = document.startPage(pageInfo)
-                    val canvas = page.canvas
-
-                    // Draw original page
-                    canvas.drawBitmap(pageBitmap, 0f, 0f, null)
-
-                    // Draw form fields for this page
-                    val pageFields = formFields.filter { it.pageIndex == i }
-                    for (field in pageFields) {
-                        drawFormField(canvas, field)
+                // Render filled fields onto a TRANSPARENT overlay per page, then stamp onto the
+                // ORIGINAL pdf via OpenPdfEditor (PDFBox) so the page's vector text is preserved
+                // instead of being flattened to an image.
+                val overlays = mutableListOf<OpenPdfEditor.ImageOverlay>()
+                val bitmaps = mutableListOf<Bitmap>()
+                try {
+                    formFields.map { it.pageIndex }.distinct().sorted().forEach { pageIndex ->
+                        val dims = OpenPdfEditor.getPageDimensions(context, sourceUri, pageIndex)
+                            ?: return@forEach
+                        val (pdfW, pdfH) = dims
+                        val bmpH = (width * pdfH / pdfW).roundToInt().coerceAtLeast(1)
+                        val overlay = Bitmap.createBitmap(width, bmpH, Bitmap.Config.ARGB_8888)
+                        bitmaps += overlay
+                        val canvas = Canvas(overlay) // transparent background
+                        formFields.filter { it.pageIndex == pageIndex }
+                            .forEach { drawFormField(canvas, it) }
+                        overlays += OpenPdfEditor.ImageOverlay(
+                            pageIndex = pageIndex,
+                            x = 0f, y = 0f, width = pdfW, height = pdfH,
+                            bitmap = overlay,
+                        )
                     }
-
-                    document.finishPage(page)
-                    pageBitmap.recycle()
+                    if (overlays.isEmpty()) return@withContext false
+                    OpenPdfEditor.applyEdits(context, sourceUri, outputFile, images = overlays)
+                } finally {
+                    bitmaps.forEach { it.recycle() }
                 }
-
-                FileOutputStream(outputFile).use { out ->
-                    document.writeTo(out)
-                }
-                document.close()
-                true
             } catch (e: Exception) {
                 false
             }

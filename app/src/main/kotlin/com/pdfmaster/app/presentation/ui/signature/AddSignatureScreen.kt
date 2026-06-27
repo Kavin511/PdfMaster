@@ -40,6 +40,8 @@ import com.pdfmaster.app.presentation.theme.*
 import com.pdfmaster.app.presentation.ui.premium.PremiumGateDialog
 import com.pdfmaster.app.presentation.ui.premium.PremiumGateViewModel
 import com.pdfmaster.app.util.FileUtils
+import com.pdfmaster.app.util.OpenPdfEditor
+import com.pdfmaster.app.util.PdfCoordinateMapper
 import com.pdfmaster.app.util.PdfUtils
 import kotlinx.coroutines.launch
 import java.io.File
@@ -101,30 +103,55 @@ fun AddSignatureScreen(
                             onClick = {
                                 // Placing & saving a signature is premium-only.
                                 if (!gateViewModel.ensure(PremiumFeature.SIGNATURE)) return@TextButton
+                                val bmp = pageBitmap
+                                val pos = signaturePosition
+                                val sig = signatureBitmap
+                                if (bmp == null || pos == null || sig == null) return@TextButton
                                 scope.launch {
                                     isSaving = true
                                     try {
+                                        // Read the real PDF page size (points) so we can map the
+                                        // on-screen placement into PDF space and stamp the signature
+                                        // onto the ORIGINAL pdf — preserving its vector text — instead
+                                        // of rasterizing every page.
+                                        val dims = OpenPdfEditor.getPageDimensions(context, parsedUri, currentPage)
+                                        if (dims == null) {
+                                            error = "Couldn't read the page size"
+                                            isSaving = false
+                                            return@launch
+                                        }
+                                        val mapper = PdfCoordinateMapper(
+                                            bitmapWidth = bmp.width,
+                                            bitmapHeight = bmp.height,
+                                            containerWidth = pageSize.width.toFloat(),
+                                            containerHeight = pageSize.height.toFloat(),
+                                            pdfWidthPts = dims.first,
+                                            pdfHeightPts = dims.second,
+                                        )
+                                        val pdfPoint = mapper.containerToPdf(pos)
+                                        if (pdfPoint == null) {
+                                            error = "Place the signature on the page"
+                                            isSaving = false
+                                            return@launch
+                                        }
+
                                         val outputDir = FileUtils.getOutputDirectory(context)
                                         val outputFile = File(outputDir, FileUtils.generateOutputFileName("Signed"))
 
-                                        val scaleX = (pageBitmap?.width ?: 1).toFloat() / pageSize.width
-                                        val scaleY = (pageBitmap?.height ?: 1).toFloat() / pageSize.height
-
-                                        val scaledX = signaturePosition!!.x * scaleX
-                                        val scaledY = signaturePosition!!.y * scaleY
-                                        val scaledWidth = (signatureSize.width * scaleX).toInt()
-                                        val scaledHeight = (signatureSize.height * scaleY).toInt()
-
-                                        val success = PdfUtils.addOverlayToPage(
-                                            context,
-                                            parsedUri,
-                                            signatureBitmap!!,
-                                            currentPage,
-                                            scaledX,
-                                            scaledY,
-                                            scaledWidth,
-                                            scaledHeight,
-                                            outputFile
+                                        val success = OpenPdfEditor.applyEdits(
+                                            context = context,
+                                            sourceUri = parsedUri,
+                                            outputFile = outputFile,
+                                            images = listOf(
+                                                OpenPdfEditor.ImageOverlay(
+                                                    pageIndex = currentPage,
+                                                    x = pdfPoint.x,
+                                                    y = pdfPoint.y,
+                                                    width = mapper.lengthToPdfX(signatureSize.width.toFloat()),
+                                                    height = mapper.lengthToPdfY(signatureSize.height.toFloat()),
+                                                    bitmap = sig,
+                                                )
+                                            ),
                                         )
 
                                         if (success) {

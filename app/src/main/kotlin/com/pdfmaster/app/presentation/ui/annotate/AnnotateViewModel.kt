@@ -7,7 +7,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.net.Uri
-import android.graphics.pdf.PdfDocument
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -19,6 +18,7 @@ import com.pdfmaster.app.billing.PremiumFeature
 import com.pdfmaster.app.billing.PremiumPrompt
 import com.pdfmaster.app.domain.model.AnnotationTool
 import com.pdfmaster.app.util.FileUtils
+import com.pdfmaster.app.util.OpenPdfEditor
 import com.pdfmaster.app.util.PdfUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
@@ -29,8 +29,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 import javax.inject.Inject
+import kotlin.math.roundToInt
 
 data class AnnotationData(
     val pageIndex: Int,
@@ -198,40 +198,38 @@ class AnnotateViewModel @Inject constructor(
     private suspend fun renderAnnotatedPdf(context: Context, sourceUri: Uri, outputFile: File): Boolean {
         return withContext(Dispatchers.IO) {
             try {
-                val pageCount = _uiState.value.pageCount
-                val document = PdfDocument()
+                val annotations = _uiState.value.annotations
+                if (annotations.isEmpty()) return@withContext false
                 val width = context.resources.displayMetrics.widthPixels
 
-                for (i in 0 until pageCount) {
-                    val pageBitmap = PdfUtils.renderPage(context, sourceUri, i, width) ?: continue
-
-                    val pageInfo = PdfDocument.PageInfo.Builder(
-                        pageBitmap.width,
-                        pageBitmap.height,
-                        i + 1
-                    ).create()
-
-                    val page = document.startPage(pageInfo)
-                    val canvas = page.canvas
-
-                    // Draw original page
-                    canvas.drawBitmap(pageBitmap, 0f, 0f, null)
-
-                    // Draw annotations for this page
-                    val pageAnnotations = _uiState.value.annotations.filter { it.pageIndex == i }
-                    for (annotation in pageAnnotations) {
-                        drawAnnotation(canvas, annotation)
+                // Draw annotations onto a TRANSPARENT overlay bitmap per annotated page (same
+                // pixel space the gestures were captured in), then stamp those overlays onto the
+                // ORIGINAL pdf via OpenPdfEditor (PDFBox). This preserves the page's vector text
+                // instead of flattening every page to an image.
+                val overlays = mutableListOf<OpenPdfEditor.ImageOverlay>()
+                val bitmaps = mutableListOf<Bitmap>()
+                try {
+                    annotations.map { it.pageIndex }.distinct().sorted().forEach { pageIndex ->
+                        val dims = OpenPdfEditor.getPageDimensions(context, sourceUri, pageIndex)
+                            ?: return@forEach
+                        val (pdfW, pdfH) = dims
+                        val bmpH = (width * pdfH / pdfW).roundToInt().coerceAtLeast(1)
+                        val overlay = Bitmap.createBitmap(width, bmpH, Bitmap.Config.ARGB_8888)
+                        bitmaps += overlay
+                        val canvas = Canvas(overlay) // transparent background
+                        annotations.filter { it.pageIndex == pageIndex }
+                            .forEach { drawAnnotation(canvas, it) }
+                        overlays += OpenPdfEditor.ImageOverlay(
+                            pageIndex = pageIndex,
+                            x = 0f, y = 0f, width = pdfW, height = pdfH,
+                            bitmap = overlay,
+                        )
                     }
-
-                    document.finishPage(page)
-                    pageBitmap.recycle()
+                    if (overlays.isEmpty()) return@withContext false
+                    OpenPdfEditor.applyEdits(context, sourceUri, outputFile, images = overlays)
+                } finally {
+                    bitmaps.forEach { it.recycle() }
                 }
-
-                FileOutputStream(outputFile).use { out ->
-                    document.writeTo(out)
-                }
-                document.close()
-                true
             } catch (e: Exception) {
                 false
             }
