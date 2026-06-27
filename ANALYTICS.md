@@ -31,20 +31,37 @@ Analytics  ──►  ConsentAwareAnalytics      ← honors the opt-out, then fo
 - **No document content, file names, or PII are ever logged** — events carry only counts,
   enums, and booleans. Keep it that way when adding events.
 
-## Enabling Firebase (≈15 min, once you have a Firebase project)
+## Enabling Firebase
 
-1. **Create the Firebase project** and add an Android app with package `com.pdfmaster.app`.
-2. Download **`google-services.json`** into `app/`.
-3. **Gradle** — in the root/app build files, enable the already-present (commented) plugins/deps:
-   - root `plugins {}` / `app/build.gradle.kts` plugins: `com.google.gms.google-services`,
-     `com.google.firebase.crashlytics`
-   - `app/build.gradle.kts` deps:
+> **Status: wired up.** The Firebase Analytics + Crashlytics SDKs are in the build, the
+> `google-services` plugin is applied **conditionally** (only when `app/google-services.json`
+> exists), `FirebaseAnalyticsTracker` is implemented, and the Hilt raw binding points at it.
+> The tracker **falls back to Logcat** until the config is added (verified on-device: the app
+> starts fine and still logs the funnel without `google-services.json`).
+>
+> **The only thing left is your Firebase project config:**
+> 1. Create the Firebase project; add an Android app with package `com.pdfmaster.app`.
+> 2. Download **`google-services.json`** into `app/`.
+>
+> That's it — the next build picks it up automatically (the conditional `apply` in
+> `app/build.gradle.kts` fires) and events flow to Firebase with no code change. No call sites
+> change. To deobfuscate release crash reports later, also add `apply false`'d
+> `com.google.firebase.crashlytics` plugin to the conditional block.
+
+<details><summary>Reference: how it was wired (already done)</summary>
+
+3. **Gradle** — `app/build.gradle.kts` declares the deps and a conditional plugin apply:
      ```kotlin
      implementation(platform(libs.firebase.bom))
      implementation(libs.firebase.analytics)
      implementation(libs.firebase.crashlytics)
+     // …at the bottom of the file:
+     if (file("google-services.json").exists()) {
+         apply(plugin = "com.google.gms.google-services")
+     }
      ```
-4. **Add the tracker** — create `analytics/FirebaseAnalyticsTracker.kt`:
+4. **The tracker** — `analytics/FirebaseAnalyticsTracker.kt` (guards on `FirebaseApp.getApps`,
+   falls back to `LogcatAnalytics` when Firebase isn't configured):
    ```kotlin
    package com.pdfmaster.app.analytics
 
@@ -88,14 +105,10 @@ Analytics  ──►  ConsentAwareAnalytics      ← honors the opt-out, then fo
        }
    }
    ```
-5. **Flip the binding** in `di/AnalyticsModule.kt` — change ONLY the raw binding:
-   ```kotlin
-   @Binds @Singleton @RawAnalytics
-   abstract fun bindRawAnalytics(impl: FirebaseAnalyticsTracker): Analytics
-   ```
-   (Leave the `ConsentAwareAnalytics` binding as-is — consent keeps working for free.)
+5. **The binding** in `di/AnalyticsModule.kt` already points the raw tracker at
+   `FirebaseAnalyticsTracker` (wrapped by `ConsentAwareAnalytics`, so consent keeps working).
 
-That's it. No call sites change.
+</details>
 
 ## Event dictionary
 

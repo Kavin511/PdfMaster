@@ -5,9 +5,9 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt)
     alias(libs.plugins.ksp)
-    // Uncomment when adding Firebase
-    // alias(libs.plugins.google.services)
-    // alias(libs.plugins.firebase.crashlytics)
+    // The google-services plugin is applied conditionally at the bottom of this file — only
+    // when app/google-services.json is present — so the build works without it and activates
+    // automatically once you add your Firebase config.
 }
 
 android {
@@ -151,10 +151,11 @@ dependencies {
     // implementation(libs.play.services.ads)
     implementation(libs.billing.ktx)
 
-    // Firebase (uncomment when ready)
-    // implementation(platform(libs.firebase.bom))
-    // implementation(libs.firebase.analytics)
-    // implementation(libs.firebase.crashlytics)
+    // Firebase Analytics + Crashlytics (BoM-managed). The SDKs compile and run without
+    // google-services.json; FirebaseAnalyticsTracker no-ops/logs until the config is present.
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.analytics)
+    implementation(libs.firebase.crashlytics)
 
     // Testing
     testImplementation(libs.junit)
@@ -162,4 +163,12 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
+}
+
+// Apply the Firebase google-services plugin only when the config is actually present, so the
+// project builds out-of-the-box without it. Drop app/google-services.json in and the next build
+// processes it automatically (no further Gradle edits needed). The plugin is on the classpath
+// via the root build.gradle.kts `apply false` declaration.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
 }
