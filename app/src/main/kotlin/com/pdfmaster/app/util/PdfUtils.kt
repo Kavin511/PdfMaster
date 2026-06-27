@@ -10,8 +10,11 @@ import android.graphics.pdf.PdfDocument
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
+import android.util.Log
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
 import com.tom_roush.pdfbox.pdmodel.PDDocument
+import com.tom_roush.pdfbox.pdmodel.PDPage
+import com.tom_roush.pdfbox.pdmodel.common.PDRectangle
 import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
 import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
 import com.tom_roush.pdfbox.text.PDFTextStripper
@@ -267,33 +270,29 @@ object PdfUtils {
         pageIndices: List<Int>,
         outputFile: File
     ): Boolean = withContext(Dispatchers.IO) {
+        // Copy the selected source pages (in the given order; duplicates allowed) into a new
+        // document via PDFBox page-tree import. This preserves vector text/search instead of
+        // rasterizing each page to a bitmap. Source stays open until the target is saved.
+        PDFBoxResourceLoader.init(context.applicationContext)
+        var src: PDDocument? = null
+        var target: PDDocument? = null
         try {
-            val width = context.resources.displayMetrics.widthPixels
-            val document = PdfDocument()
-
-            pageIndices.forEachIndexed { newIndex, originalIndex ->
-                val bitmap = renderPage(context, sourceUri, originalIndex, width, 100)
-                if (bitmap != null) {
-                    val pageInfo = PdfDocument.PageInfo.Builder(
-                        bitmap.width,
-                        bitmap.height,
-                        newIndex + 1
-                    ).create()
-
-                    val page = document.startPage(pageInfo)
-                    page.canvas.drawBitmap(bitmap, 0f, 0f, null)
-                    document.finishPage(page)
-                    bitmap.recycle()
-                }
+            val bytes = context.contentResolver.openInputStream(sourceUri)?.use { it.readBytes() }
+                ?: return@withContext false
+            src = PDDocument.load(bytes)
+            val pageCount = src.numberOfPages
+            target = PDDocument()
+            pageIndices.forEach { index ->
+                if (index in 0 until pageCount) target!!.importPage(src!!.getPage(index))
             }
-
-            FileOutputStream(outputFile).use { out ->
-                document.writeTo(out)
-            }
-            document.close()
-            true
+            if (target.numberOfPages == 0) return@withContext false
+            saveAtomic(target, outputFile)
         } catch (e: Exception) {
+            Log.e(TAG, "extractPages failed", e)
             false
+        } finally {
+            runCatching { target?.close() }
+            runCatching { src?.close() }
         }
     }
 
@@ -305,37 +304,32 @@ object PdfUtils {
         sourceUris: List<Uri>,
         outputFile: File
     ): Boolean = withContext(Dispatchers.IO) {
+        // Concatenate sources by importing their page trees into one target document (preserves
+        // vector text). Unreadable/encrypted sources are skipped rather than silently producing a
+        // blank page. All sources stay open until the target is saved.
+        PDFBoxResourceLoader.init(context.applicationContext)
+        val sources = mutableListOf<PDDocument>()
+        var target: PDDocument? = null
         try {
-            val document = PdfDocument()
-            var pageNumber = 1
-            val width = context.resources.displayMetrics.widthPixels
-
+            target = PDDocument()
             sourceUris.forEach { uri ->
-                val pageCount = getPageCount(context, uri)
-                for (i in 0 until pageCount) {
-                    val bitmap = renderPage(context, uri, i, width, 100)
-                    if (bitmap != null) {
-                        val pageInfo = PdfDocument.PageInfo.Builder(
-                            bitmap.width,
-                            bitmap.height,
-                            pageNumber++
-                        ).create()
-
-                        val page = document.startPage(pageInfo)
-                        page.canvas.drawBitmap(bitmap, 0f, 0f, null)
-                        document.finishPage(page)
-                        bitmap.recycle()
-                    }
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: return@forEach
+                val src = runCatching { PDDocument.load(bytes) }.getOrNull() ?: run {
+                    Log.w(TAG, "mergePdfs: skipping unreadable source $uri")
+                    return@forEach
                 }
+                sources += src
+                for (i in 0 until src.numberOfPages) target!!.importPage(src.getPage(i))
             }
-
-            FileOutputStream(outputFile).use { out ->
-                document.writeTo(out)
-            }
-            document.close()
-            true
+            if (target.numberOfPages == 0) return@withContext false
+            saveAtomic(target, outputFile)
         } catch (e: Exception) {
+            Log.e(TAG, "mergePdfs failed", e)
             false
+        } finally {
+            runCatching { target?.close() }
+            sources.forEach { runCatching { it.close() } }
         }
     }
 
@@ -530,41 +524,107 @@ object PdfUtils {
         pageRotations: Map<Int, Float>,
         outputFile: File
     ): Boolean = withContext(Dispatchers.IO) {
+        // Set the /Rotate entry on the affected pages (additive on top of any existing rotation)
+        // rather than rasterizing. Rotation is normalized to [0,360). Vector content untouched.
+        PDFBoxResourceLoader.init(context.applicationContext)
+        var doc: PDDocument? = null
         try {
-            val pageCount = getPageCount(context, sourceUri)
-            val document = PdfDocument()
-            val width = context.resources.displayMetrics.widthPixels
-
-            for (i in 0 until pageCount) {
-                var bitmap = renderPage(context, sourceUri, i, width, 100)
-                if (bitmap != null) {
-                    val rotation = pageRotations[i]
-                    if (rotation != null && rotation != 0f) {
-                        bitmap = rotateBitmap(bitmap, rotation)
-                    }
-
-                    val pageInfo = PdfDocument.PageInfo.Builder(
-                        bitmap.width,
-                        bitmap.height,
-                        i + 1
-                    ).create()
-
-                    val page = document.startPage(pageInfo)
-                    page.canvas.drawBitmap(bitmap, 0f, 0f, null)
-                    document.finishPage(page)
-                    bitmap.recycle()
+            val bytes = context.contentResolver.openInputStream(sourceUri)?.use { it.readBytes() }
+                ?: return@withContext false
+            doc = PDDocument.load(bytes)
+            val pageCount = doc.numberOfPages
+            pageRotations.forEach { (index, degrees) ->
+                if (index in 0 until pageCount && degrees != 0f) {
+                    val page = doc!!.getPage(index)
+                    page.rotation = (((page.rotation + degrees.toInt()) % 360) + 360) % 360
                 }
             }
-
-            FileOutputStream(outputFile).use { out ->
-                document.writeTo(out)
-            }
-            document.close()
-            true
+            saveAtomic(doc, outputFile)
         } catch (e: Exception) {
+            Log.e(TAG, "rotatePages failed", e)
+            false
+        } finally {
+            runCatching { doc?.close() }
+        }
+    }
+
+    /**
+     * Assemble an output PDF from a page plan in a single PDFBox pass — supporting reorder,
+     * delete, duplicate, blank-page insertion, and per-output-page rotation together.
+     *
+     * @param pagePlan one entry per output page: a source page index to import, or -1 for a new
+     *   blank page (sized to the source's first page). Out-of-range indices are skipped.
+     * @param rotations rotation (degrees, additive, normalized) keyed by OUTPUT position
+     *   (index into [pagePlan]).
+     */
+    suspend fun buildDocument(
+        context: Context,
+        sourceUri: Uri,
+        pagePlan: List<Int>,
+        rotations: Map<Int, Float>,
+        outputFile: File,
+    ): Boolean = withContext(Dispatchers.IO) {
+        PDFBoxResourceLoader.init(context.applicationContext)
+        var src: PDDocument? = null
+        var target: PDDocument? = null
+        try {
+            val bytes = context.contentResolver.openInputStream(sourceUri)?.use { it.readBytes() }
+                ?: return@withContext false
+            src = PDDocument.load(bytes)
+            val pageCount = src.numberOfPages
+            if (pageCount == 0) return@withContext false
+            target = PDDocument()
+            val blankSize = src.getPage(0).mediaBox.let { PDRectangle(it.width, it.height) }
+
+            pagePlan.forEachIndexed { outPos, srcIndex ->
+                val page: PDPage? = when {
+                    srcIndex == -1 -> PDPage(blankSize).also { target!!.addPage(it) }
+                    srcIndex in 0 until pageCount -> target!!.importPage(src!!.getPage(srcIndex))
+                    else -> null
+                }
+                val deg = rotations[outPos]
+                if (page != null && deg != null && deg != 0f) {
+                    page.rotation = (((page.rotation + deg.toInt()) % 360) + 360) % 360
+                }
+            }
+            if (target.numberOfPages == 0) return@withContext false
+            saveAtomic(target, outputFile)
+        } catch (e: Exception) {
+            Log.e(TAG, "buildDocument failed", e)
+            false
+        } finally {
+            runCatching { target?.close() }
+            runCatching { src?.close() }
+        }
+    }
+
+    /**
+     * Save [doc] to [outputFile] atomically: write to a sibling temp file and only move it into
+     * place after a fully-successful save, so a failure can never leave a 0-byte/partial output.
+     */
+    private fun saveAtomic(doc: PDDocument, outputFile: File): Boolean {
+        val tmp = File(outputFile.parentFile, "${outputFile.name}.tmp")
+        return try {
+            tmp.parentFile?.mkdirs()
+            doc.save(tmp)
+            if (tmp.length() == 0L) {
+                tmp.delete()
+                false
+            } else {
+                val moved = tmp.renameTo(outputFile) || runCatching {
+                    tmp.copyTo(outputFile, overwrite = true); tmp.delete()
+                }.isSuccess
+                if (!moved) tmp.delete()
+                moved
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "saveAtomic failed", e)
+            if (tmp.exists()) tmp.delete()
             false
         }
     }
+
+    private const val TAG = "PdfUtils"
 
     private fun rotateBitmap(source: Bitmap, degrees: Float): Bitmap {
         val matrix = android.graphics.Matrix()
