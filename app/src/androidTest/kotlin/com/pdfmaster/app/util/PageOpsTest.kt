@@ -45,6 +45,16 @@ class PageOpsTest {
         PDDocument.load(file).use { it.numberOfPages }
 
     @Test
+    fun getPageCount_and_render_onValidPdf() = runBlocking {
+        // Guards the "Could not open PDF file" path: a valid PDF must report its page count
+        // and render. (PdfRenderer-based; uses a file:// uri from the cached asset.)
+        val pdf = asset("three_page.pdf")
+        assertEquals("page count of a valid 3-page PDF", 3, PdfUtils.getPageCount(context, pdf))
+        val bitmap = PdfUtils.renderPage(context, pdf, 0, 600)
+        assertTrue("renderPage returned null/empty for a valid PDF", bitmap != null && bitmap.width > 0)
+    }
+
+    @Test
     fun merge_concatenatesAndPreservesText() = runBlocking {
         val three = asset("three_page.pdf")
         val out = File(context.cacheDir, "merged.pdf").apply { delete() }
