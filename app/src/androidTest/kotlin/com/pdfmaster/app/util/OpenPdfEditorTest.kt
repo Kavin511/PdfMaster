@@ -91,6 +91,33 @@ class OpenPdfEditorTest {
     }
 
     @Test
+    fun fullPageTransparentOverlay_preservesText() = runBlocking {
+        // This is exactly the annotate/form pattern: a full-page transparent overlay carrying
+        // drawn marks, stamped over the whole page. The original text must still survive.
+        val src = testPdfUri()
+        val dims = OpenPdfEditor.getPageDimensions(context, src, 0)!!
+        val (pdfW, pdfH) = dims
+        val overlay = Bitmap.createBitmap(1000, (1000 * pdfH / pdfW).toInt(), Bitmap.Config.ARGB_8888)
+        Canvas(overlay).apply {
+            drawColor(Color.TRANSPARENT)
+            drawLine(50f, 50f, 950f, 950f, Paint().apply { color = Color.RED; strokeWidth = 8f })
+        }
+        val outFile = File(context.cacheDir, "annotated_out.pdf")
+        if (outFile.exists()) outFile.delete()
+
+        val ok = OpenPdfEditor.applyEdits(
+            context = context, sourceUri = src, outputFile = outFile,
+            images = listOf(OpenPdfEditor.ImageOverlay(0, 0f, 0f, pdfW, pdfH, overlay)),
+        )
+
+        assertTrue("applyEdits returned false", ok)
+        assertTrue("output empty", outFile.length() > 0L)
+        PDFBoxResourceLoader.init(context)
+        val extracted = PDDocument.load(outFile).use { PDFTextStripper().getText(it) }
+        assertTrue("text lost under full-page overlay", extracted.contains("selectable after signing"))
+    }
+
+    @Test
     fun textOverlay_producesNonEmptyPdf() = runBlocking {
         // Control: the text path is believed to work; confirms the harness + asset are sound.
         val src = testPdfUri()
