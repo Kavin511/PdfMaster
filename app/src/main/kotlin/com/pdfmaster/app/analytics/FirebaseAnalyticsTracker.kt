@@ -5,7 +5,6 @@ import android.os.Bundle
 import android.util.Log
 import com.google.firebase.FirebaseApp
 import com.google.firebase.analytics.FirebaseAnalytics
-import com.google.firebase.crashlytics.FirebaseCrashlytics
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -21,7 +20,7 @@ import javax.inject.Singleton
  * `google-services.json` and Firebase activates automatically — no code change.
  *
  * Wrapped by [ConsentAwareAnalytics], so opt-out is already honored upstream; we still relay
- * [setCollectionEnabled] to Firebase/Crashlytics as a second line of defense.
+ * [setCollectionEnabled] to Firebase as a second line of defense.
  */
 @Singleton
 class FirebaseAnalyticsTracker @Inject constructor(
@@ -31,9 +30,6 @@ class FirebaseAnalyticsTracker @Inject constructor(
 
     private val firebase: FirebaseAnalytics? =
         if (FirebaseApp.getApps(context).isNotEmpty()) FirebaseAnalytics.getInstance(context) else null
-
-    private val crashlytics: FirebaseCrashlytics? =
-        if (firebase != null) FirebaseCrashlytics.getInstance() else null
 
     init {
         if (firebase == null) {
@@ -75,7 +71,6 @@ class FirebaseAnalyticsTracker @Inject constructor(
 
     override fun setCollectionEnabled(enabled: Boolean) {
         firebase?.setAnalyticsCollectionEnabled(enabled)
-        crashlytics?.isCrashlyticsCollectionEnabled = enabled
     }
 
     private companion object {

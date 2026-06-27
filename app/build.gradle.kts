@@ -54,8 +54,16 @@ android {
     buildTypes {
         debug {
             isMinifyEnabled = false
-            applicationIdSuffix = ".debug"
-            versionNameSuffix = "-debug"
+            // Distinct id so debug/release can coexist on one device — BUT only when there's no
+            // google-services.json. A release-only Firebase config has no client for the
+            // "<id>.debug" package, which makes the Google Services plugin fail; with Firebase
+            // configured, debug uses the base applicationId so it matches the single client.
+            // (To run debug + release at once, add a debug app in Firebase and a per-variant
+            // google-services.json under app/src/debug/.)
+            if (!file("google-services.json").exists()) {
+                applicationIdSuffix = ".debug"
+                versionNameSuffix = "-debug"
+            }
         }
         release {
             isMinifyEnabled = true
@@ -178,11 +186,14 @@ dependencies {
     // implementation(libs.play.services.ads)
     implementation(libs.billing.ktx)
 
-    // Firebase Analytics + Crashlytics (BoM-managed). The SDKs compile and run without
-    // google-services.json; FirebaseAnalyticsTracker no-ops/logs until the config is present.
+    // Firebase Analytics (BoM-managed). Compiles/runs without google-services.json;
+    // FirebaseAnalyticsTracker falls back to Logcat until the config is present.
+    // NOTE: Crashlytics is intentionally NOT included — its SDK requires the Crashlytics Gradle
+    // plugin (build-ID generation) or FirebaseInitProvider crashes at startup. Add both the
+    // firebase-crashlytics dependency AND apply("com.google.firebase.crashlytics") together if
+    // you want crash reporting later.
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.analytics)
-    implementation(libs.firebase.crashlytics)
 
     // Testing
     testImplementation(libs.junit)

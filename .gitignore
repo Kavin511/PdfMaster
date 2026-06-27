@@ -46,6 +46,10 @@ captures/
 # Release signing credentials (passwords/paths) — never commit; see keystore.properties.example
 keystore.properties
 
+# Firebase config (contains the project's API key/app id) — keep out of an open-source repo
+google-services.json
+app/google-services.json
+
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild
 .cxx/
