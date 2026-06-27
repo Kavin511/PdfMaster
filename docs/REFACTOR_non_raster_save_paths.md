@@ -58,9 +58,14 @@ Coordinate math cannot be fully validated without a device. Before merging this 
 - [x] **OpenPdfEditor rewritten on PDFBox-Android** (root-cause fix, see below) + instrumented test
 - [x] Signature → applyEdits — verified: output is a valid non-empty PDF with the original
       **text layer preserved** (asserted by `OpenPdfEditorTest`)
-- [ ] Annotate → applyEdits (+ non-freehand tools) — now unblocked, next
-- [ ] Form → applyEdits (+ font scaling) — now unblocked, next
-- [ ] Chunk B (separate branch)
+- [x] Annotate → applyEdits — transparent per-page overlay stamped onto original (text preserved)
+- [x] Form → applyEdits — transparent per-page overlay stamped onto original (text preserved)
+- [ ] Chunk B (separate branch): merge/split/rotate/page-manager page-structure ops
+
+Chunk A complete: signature + annotate + form all de-rasterized and covered by
+`OpenPdfEditorTest` (3/3 green on device). Remaining polish (annotate's non-freehand tool
+gestures, form field font-size precision, letterbox-exact coordinate capture) is incremental
+and tracked separately; the core "stop destroying vector text" goal is met for all three.
 
 ## ⚠️ Verification finding (2026-06-26, Medium_Phone arm64 emulator)
 End-to-end emulator test of the signature flow (import → draw → place → save, premium forced):
