@@ -75,7 +75,10 @@ class UserPreferences @Inject constructor(
     suspend fun setThemeMode(mode: ThemeMode) = setPreference(Keys.THEME_MODE, mode.name)
 
     // Dynamic Color
-    fun getDynamicColorEnabled(): Flow<Boolean> = getPreference(Keys.DYNAMIC_COLOR_ENABLED, true)
+    // Default OFF so the terracotta brand scheme is used on all devices. On Android 12+,
+    // leaving this on lets Material You pull from the wallpaper and override the brand
+    // (e.g. a blue wallpaper turns the whole app blue). Users can still opt in via Settings.
+    fun getDynamicColorEnabled(): Flow<Boolean> = getPreference(Keys.DYNAMIC_COLOR_ENABLED, false)
     suspend fun setDynamicColorEnabled(enabled: Boolean) = setPreference(Keys.DYNAMIC_COLOR_ENABLED, enabled)
 
     // View Mode

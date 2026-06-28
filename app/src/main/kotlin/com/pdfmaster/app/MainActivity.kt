@@ -46,7 +46,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             // Collect theme settings from preferences
             val themeMode by userPreferences.getThemeMode().collectAsState(initial = ThemeMode.SYSTEM)
-            val dynamicColorEnabled by userPreferences.getDynamicColorEnabled().collectAsState(initial = true)
+            val dynamicColorEnabled by userPreferences.getDynamicColorEnabled().collectAsState(initial = false)
 
             // Determine if dark theme based on user preference
             val darkTheme = when (themeMode) {
