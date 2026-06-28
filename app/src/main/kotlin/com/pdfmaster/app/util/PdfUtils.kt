@@ -19,6 +19,7 @@ import com.tom_roush.pdfbox.pdmodel.encryption.AccessPermission
 import com.tom_roush.pdfbox.pdmodel.encryption.StandardProtectionPolicy
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import com.tom_roush.pdfbox.text.TextPosition
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -166,51 +167,82 @@ object PdfUtils {
     ): Boolean = withContext(Dispatchers.IO) {
         val document = PdfDocument()
         var pagesAdded = 0
+        Log.d(TAG, "imagesToPdf: starting with ${imageUris.size} image(s) -> ${outputFile.absolutePath}")
         try {
             imageUris.forEachIndexed { index, uri ->
                 ensureActive() // honor cancellation (e.g. user backs out mid-convert)
 
-                // 1) Read just the dimensions — no full-resolution allocation yet.
-                val bounds = android.graphics.BitmapFactory.Options().apply {
-                    inJustDecodeBounds = true
-                }
-                context.contentResolver.openInputStream(uri)?.use {
-                    android.graphics.BitmapFactory.decodeStream(it, null, bounds)
-                } ?: return@forEachIndexed
-                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@forEachIndexed
-
-                // 2) Downsample so the longest side <= MAX_IMAGE_DIMEN. A 12MP phone photo
-                //    would otherwise decode to ~48MB ARGB_8888 and OOM after a few pages.
-                val opts = android.graphics.BitmapFactory.Options().apply {
-                    inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, MAX_IMAGE_DIMEN)
-                }
-                val bitmap = context.contentResolver.openInputStream(uri)?.use {
-                    android.graphics.BitmapFactory.decodeStream(it, null, opts)
-                } ?: return@forEachIndexed
-
+                // Each image is handled independently: a single unreadable/undecodable image
+                // (e.g. a transient SAF read error, a revoked grant, or a corrupt file) is
+                // logged and skipped rather than aborting the whole batch. Without this, one
+                // bad URI threw out of the loop and failed every other (valid) image too.
                 try {
-                    val pageInfo = PdfDocument.PageInfo.Builder(
-                        bitmap.width,
-                        bitmap.height,
-                        index + 1
-                    ).create()
-                    val page = document.startPage(pageInfo)
-                    page.canvas.drawBitmap(bitmap, 0f, 0f, null)
-                    document.finishPage(page)
-                    pagesAdded++
-                } finally {
-                    bitmap.recycle() // recycle even if finishPage throws
+                    // 1) Read just the dimensions — no full-resolution allocation yet.
+                    val bounds = android.graphics.BitmapFactory.Options().apply {
+                        inJustDecodeBounds = true
+                    }
+                    val boundsStream = context.contentResolver.openInputStream(uri)
+                    if (boundsStream == null) {
+                        Log.w(TAG, "imagesToPdf: openInputStream returned null for $uri — skipping")
+                        return@forEachIndexed
+                    }
+                    boundsStream.use {
+                        android.graphics.BitmapFactory.decodeStream(it, null, bounds)
+                    }
+                    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                        Log.w(TAG, "imagesToPdf: undecodable bounds (${bounds.outWidth}x${bounds.outHeight}, " +
+                            "mime=${bounds.outMimeType}) for $uri — skipping")
+                        return@forEachIndexed
+                    }
+
+                    // 2) Downsample so the longest side <= MAX_IMAGE_DIMEN. A 12MP phone photo
+                    //    would otherwise decode to ~48MB ARGB_8888 and OOM after a few pages.
+                    val opts = android.graphics.BitmapFactory.Options().apply {
+                        inSampleSize = calculateInSampleSize(bounds.outWidth, bounds.outHeight, MAX_IMAGE_DIMEN)
+                    }
+                    val bitmap = context.contentResolver.openInputStream(uri)?.use {
+                        android.graphics.BitmapFactory.decodeStream(it, null, opts)
+                    }
+                    if (bitmap == null) {
+                        Log.w(TAG, "imagesToPdf: decodeStream returned null for $uri " +
+                            "(inSampleSize=${opts.inSampleSize}) — skipping")
+                        return@forEachIndexed
+                    }
+
+                    try {
+                        val pageInfo = PdfDocument.PageInfo.Builder(
+                            bitmap.width,
+                            bitmap.height,
+                            index + 1
+                        ).create()
+                        val page = document.startPage(pageInfo)
+                        page.canvas.drawBitmap(bitmap, 0f, 0f, null)
+                        document.finishPage(page)
+                        pagesAdded++
+                        Log.d(TAG, "imagesToPdf: added page ${index + 1} (${bitmap.width}x${bitmap.height})")
+                    } finally {
+                        bitmap.recycle() // recycle even if finishPage throws
+                    }
+                } catch (ce: CancellationException) {
+                    throw ce // never swallow coroutine cancellation
+                } catch (e: Exception) {
+                    Log.w(TAG, "imagesToPdf: failed to process image #${index + 1} ($uri) — skipping", e)
                 }
             }
 
             // Don't write an empty PDF if every image failed to decode.
-            if (pagesAdded == 0) return@withContext false
+            if (pagesAdded == 0) {
+                Log.e(TAG, "imagesToPdf: no pages added (all ${imageUris.size} image(s) failed to decode)")
+                return@withContext false
+            }
 
             FileOutputStream(outputFile).use { outputStream ->
                 document.writeTo(outputStream)
             }
+            Log.d(TAG, "imagesToPdf: wrote $pagesAdded page(s), ${outputFile.length()} bytes")
             true
         } catch (e: Exception) {
+            Log.e(TAG, "imagesToPdf failed (pagesAdded=$pagesAdded, output=${outputFile.absolutePath})", e)
             false
         } finally {
             document.close() // always close, including on the exception path
