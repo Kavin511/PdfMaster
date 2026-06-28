@@ -22,7 +22,7 @@ mlkitTextRecognition = "16.0.1"
 
 # PDF Libraries (pdfbox-android is the Android port of Apache PDFBox)
 pdfboxAndroid = "2.0.27.0"
-mupdf = "1.24.10"
+mupdf = "1.28.0"  # 1.27.0+ ships 16KB-page-aligned native libs (.so); required for Android 15+
 
 # Firebase & Ads
 firebaseBom = "33.7.0"
