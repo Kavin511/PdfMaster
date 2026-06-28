@@ -54,7 +54,8 @@ side-by-side layout (headline column + framed screenshot) with `compose_landscap
 ## Before you publish — TODO
 - [ ] Pick **one** listing copy (A or B) and paste title / short / full description.
 - [ ] Fill in real **subscription terms** (trial length, price, period) in the Pro paragraph.
-- [ ] Add **privacy policy URL** + support email in Play Console (required: subscriptions + analytics).
+- [x] **Privacy policy drafted** — `PRIVACY_POLICY.md` + hostable `privacy-policy.html`.
+  - [ ] Replace `[SUPPORT EMAIL]` placeholder, host it at a public URL (e.g. GitHub Pages), and paste the URL into Play Console → App content → Privacy policy.
 - [ ] App icon (512×512) — export from the launcher icon.
 - [ ] (Optional) Re-shoot `05_sign` with a cleaner signature if desired.
 - [ ] Localize copy if targeting non-English markets.
