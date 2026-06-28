@@ -56,7 +56,7 @@ side-by-side layout (headline column + framed screenshot) with `compose_landscap
 - [ ] Fill in real **subscription terms** (trial length, price, period) in the Pro paragraph.
 - [x] **Privacy policy drafted** — `PRIVACY_POLICY.md` + hostable `privacy-policy.html`.
   - [ ] Replace `[SUPPORT EMAIL]` placeholder, host it at a public URL (e.g. GitHub Pages), and paste the URL into Play Console → App content → Privacy policy.
-- [ ] App icon (512×512) — export from the launcher icon.
+- [x] **App icon (512×512)** — `app-icon-512.png` (rendered from the launcher vector; source `app-icon.svg`).
 - [ ] (Optional) Re-shoot `05_sign` with a cleaner signature if desired.
 - [ ] Localize copy if targeting non-English markets.
 
