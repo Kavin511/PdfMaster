@@ -103,6 +103,15 @@ fun PdfMasterTheme(
             window.statusBarColor = Color.Transparent.toArgb()
             window.navigationBarColor = Color.Transparent.toArgb()
 
+            // Disable the translucent contrast scrim Android draws behind the
+            // 3-button nav bar (and status bar) when their colors are transparent.
+            // Without this the nav bar strip is washed lighter than the app
+            // background, producing a visible color seam. (API 29+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isNavigationBarContrastEnforced = false
+                window.isStatusBarContrastEnforced = false
+            }
+
             // Set light/dark status bar icons
             WindowCompat.getInsetsController(window, view).apply {
                 isAppearanceLightStatusBars = !darkTheme
